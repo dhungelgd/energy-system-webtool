@@ -1,11 +1,16 @@
 import pandas as pd
 from oemof.solph import EnergySystem, Bus, Flow
 import oemof.solph.components as cmp
+import numpy as np
+import pandas as pd
 
 
-def build_model(config: dict):
+def build_model(config, input_data):
 
-    es = EnergySystem()
+    #create a timeindex
+    timeindex = pd.date_range(start="2021-01-01", periods=8760, freq="h")
+
+    es = EnergySystem(timeindex=timeindex)
 
     # create bus
     bus_map = {}
@@ -21,9 +26,12 @@ def build_model(config: dict):
         # demand
         if tech["type"] == "demand":
 
-            index = pd.RangeIndex(8760)
+            profile_data = input_data["electricity_demand"]
 
-            demand_series = pd.Series([1] * 8760, index=index)
+            demand_series = pd.Series(
+                profile_data,
+                index=timeindex[:len(profile_data)]
+            )
 
             es.add(
                 cmp.Sink(
