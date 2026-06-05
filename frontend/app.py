@@ -4,83 +4,91 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import streamlit as st
-import pandas as pd
-
 from backend.scenario_runner import run_scenario
-from backend.input_schema import SolverConfig
+from backend.postprocessing import process_results, compute_energy_sums
+from backend.plotting import plot_energy_flows
+from backend.config_builder import build_config
+from frontend.ui_inputs import build_ui
+from frontend.ui_styles import load_global_styles
+
+# ui styling
+load_global_styles()
 
 st.title("Energy System Web Tool (oemof)")
 
-# csv upload
-st.header("Demand Profile Upload")
+# session state
+if "ready_confirmed" not in st.session_state:
+    st.session_state.ready_confirmed = False
 
-df = None
-demand_column = None
+# ui input block
+selected_techs, tech_inputs, input_data, solver_cfg = build_ui()
 
-uploaded_file = st.file_uploader("Upload demand CSV", type=["csv"])
+# system check
+st.markdown("---")
+st.subheader("System Check")
 
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+if not st.session_state.ready_confirmed:
 
-    st.write("Preview:")
-    st.dataframe(df)
+    confirm = st.radio(
+        "All components added?",
+        ["Not yet", "Yes, ready"],
+        index=0
+    )
 
-    demand_column = st.selectbox("Select demand column", df.columns)
+    if confirm == "Yes, ready":
+        st.session_state.ready_confirmed = True
+        st.rerun()
 
-# other inputs
-price = st.number_input("Electricity Price (€/kWh)", value=0.3)
+else:
 
-solver_name = st.selectbox("Solver", ["cbc", "gurobi"])
-tee = st.checkbox("Show solver output", value=False)
+    st.success("System confirmed. Ready to optimize.")
 
-run = st.button("Run Optimization")
+    run = st.button("Run Optimization")
 
-# run model
-if run:
+    # execution
+    if run:
 
-    # safety check
-    if df is None or demand_column is None:
-        st.error("Please upload a CSV and select a demand column.")
-        st.stop()
-
-    config = {
-        "buses": {
-            "electricity_bus": {"label": "electricity"}
-        },
-
-        "technologies": {
-            "demand_el": {
-                "type": "demand",
-                "bus": "electricity_bus",
-                "scaling_factor": 1
-            },
-
-            "grid": {
-                "type": "grid",
-                "bus": "electricity_bus",
-                "profile_data": df[demand_column].tolist(),
-                "variable_costs": price,
-                "feedin_tariff": 0.06
-            }
-        },
-
-        "solver": SolverConfig(
-            name=solver_name,
-            tee=tee
+        config = build_config(
+            selected_techs=selected_techs,
+            tech_inputs=tech_inputs,
+            input_data=input_data,
+            solver_cfg=solver_cfg
         )
-    }
 
-    input_data = {
-        "electricity_demand": df[demand_column].tolist()
-    }
+        with st.spinner("Running optimization..."):
 
-    with st.spinner("Running optimization..."):
+            es, results, meta_results, fig = run_scenario(
+                config,
+                input_data,
+                plot_graph=True
+            )
 
-        es, results, meta_results = run_scenario(config, input_data)
+            # graph
+            if fig is not None:
+                st.pyplot(fig)
 
-    st.success("Optimization completed")
-    st.subheader("Results")
+        st.success("Optimization completed")
 
-    # show structure safely
-    total_costs = meta_results["objective"]
-    st.write (f"The annual costs for electricty supply is {total_costs:.2f} €.")
+        # results
+        st.subheader("Results Summary")
+
+        st.write(
+            f"Annual system cost: {meta_results['objective']:.2f} €"
+        )
+
+        flows = process_results(results, bus_name="electricity")
+
+        st.subheader("Flows")
+        st.dataframe(flows)
+
+        st.subheader("Energy Summary")
+        st.write(compute_energy_sums(flows))
+
+        st.subheader("Visualization")
+
+        energy_flows_plot = plot_energy_flows(
+            flows,
+            "electricity"
+        )
+
+        st.pyplot(energy_flows_plot)
