@@ -6,31 +6,13 @@ import plotly.graph_objects as go
 import numpy as np
 
 # plot energy system graph
-def plot_energy_system_graph(energy_system, scenario_name="scenario", save_dir=None):
-
-    # Set default save directory to results
-    if save_dir is None:
-        project_root = Path(__file__).resolve().parent.parent
-        save_dir = project_root / "results" / "graphs"
-    else:
-        save_dir = Path(save_dir)
-
-    # Make sure folder exists
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    dot_file = save_dir / f"{scenario_name}.dot"
-    png_file = save_dir / f"{scenario_name}.png"
+def plot_energy_system_graph(energy_system):
 
     graph = create_nx_graph(energy_system)
-
-    nx.drawing.nx_pydot.write_dot(graph, dot_file)
     plt.figure(figsize=(10, 6))
     pos = nx.spring_layout(graph, seed=42)
     nx.draw(graph, pos, with_labels=True, node_size=2000, node_color="lightblue", edge_color="gray",
             font_size=9, font_weight="bold")
-    plt.title(f"Energy System Graph: {scenario_name}")
-    # plt.tight_layout()
-    plt.savefig(png_file)
     return plt.gcf()
 
 # plot energy flows
@@ -41,8 +23,8 @@ def plot_energy_flows(flows, bus_name, start=None, end=None):
         flows = flows.loc[start:end]
 
     # identify supply and demand
-    supply_cols = [c for c in flows.columns if c.endswith(f"_{bus_name}")]
-    demand_cols = [c for c in flows.columns if c.startswith(f"{bus_name}_")]
+    supply_cols = [c for c in flows.columns if c.endswith(f"-->{bus_name}")]
+    demand_cols = [c for c in flows.columns if c.startswith(f"{bus_name}-->")]
 
     if not supply_cols and not demand_cols:
         raise ValueError(f"No flows found for bus '{bus_name}'")
