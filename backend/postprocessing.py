@@ -14,7 +14,7 @@ def flatten_flows(df):
 
     df_flat = df.copy()
     df_flat.columns = [
-        f"{col[0][0]}_{col[0][1]}" for col in df.columns
+        f"{col[0][0]}-->{col[0][1]}" for col in df.columns
     ]
 
     return df_flat
@@ -23,8 +23,8 @@ def flatten_flows(df):
 def split_supply_demand(flows, bus_name):
     # split flows into supply (to bus) and demand (from bus)
 
-    supply_cols = [c for c in flows.columns if c.endswith(f"_{bus_name}")]
-    demand_cols = [c for c in flows.columns if c.startswith(f"{bus_name}_")]
+    supply_cols = [c for c in flows.columns if c.endswith(f"-->{bus_name}")]
+    demand_cols = [c for c in flows.columns if c.startswith(f"{bus_name}-->")]
 
     return supply_cols, demand_cols
 
@@ -32,7 +32,6 @@ def split_supply_demand(flows, bus_name):
 def compute_energy_sums(flows):
 
     return flows.sum()
-
 
 # full processing pipeline
 def process_results(results, bus_name):
