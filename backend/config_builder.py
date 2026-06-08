@@ -7,7 +7,15 @@ def build_config(
     solver_cfg
 ):
 
-    config = {"buses": {"electricity_bus": {"label": "electricity"}}, "technologies": {}, "solver": solver_cfg}
+    config = {
+        "buses": {
+            "electricity_bus": {"label": "electricity"},
+            "heat_bus": {"label": "heat"},
+            "gas_bus": {"label": "gas"}
+        },
+        "technologies": {},
+        "solver": solver_cfg
+    }
 
     # build technologies via registry
     for tech in selected_techs:

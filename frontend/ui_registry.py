@@ -1,5 +1,6 @@
 UI_REGISTRY = {
 
+    # electricity demand
     "demand": {
         "label": "Electricity Demand",
 
@@ -9,6 +10,26 @@ UI_REGISTRY = {
             "default_column": 1
         },
 
+        "inputs": [
+            {
+                "key": "scaling_factor",
+                "type": "number",
+                "label": "Scaling Factor",
+                "default": 1.0,
+                "step": 1.0
+            }
+        ]
+    },
+
+    # heating demand
+    "heat_demand": {
+        "label": "Heat Demand",
+
+        "timeseries": {
+            "key": "heat_demand",
+            "upload_label": "Upload heat demand data",
+            "default_column": 4
+        },
         "inputs": [
             {
                 "key": "scaling_factor",
@@ -128,6 +149,44 @@ UI_REGISTRY = {
                 "type": "selectbox",
                 "label": "Mode",
                 "options": ["fixed", "invest"]
+            }
+        ]
+    },
+
+    # gas import
+        "gas_import": {
+        "label": "Gas Import",
+        "inputs": [
+            {
+                "key": "variable_costs",
+                "type": "number",
+                "label": "Gas Price (€/kWh)",
+                "default": 0.10
+            }
+        ]
+    },
+
+    # gas boiler
+    "gas_boiler": {
+        "label": "Gas Boiler",
+        "inputs": [
+            {
+                "key": "efficiency",
+                "type": "number",
+                "label": "Efficiency",
+                "default": 0.9
+            },
+            {
+                "key": "variable_costs",
+                "type": "number",
+                "label": "Gas Cost (€/kWh_fuel)",
+                "default": 0.1
+            },
+            {
+                "key": "capacity",
+                "type": "number",
+                "label": "Capacity (kW)",
+                "default": 50.0
             }
         ]
     }

@@ -37,6 +37,32 @@ def add_demand(es, buses, cfg, input_data):
         )
     )
 
+def add_heat_demand(es, buses, cfg, input_data):
+
+    timeindex = es.timeindex
+
+    profile_key = cfg.get("profile_key", "heat_demand")
+    profile_data = input_data.get(profile_key)
+
+    if profile_data is None:
+        raise ValueError(f"Missing demand profile: {profile_key}")
+
+    heat_series = pd.Series(
+        profile_data,
+        index=timeindex[:len(profile_data)]
+    )
+
+    es.add(
+        solph.components.Sink(
+            label=cfg.get("label", "heat_demand"),
+            inputs={
+                buses[cfg["bus"]]: solph.Flow(
+                    fix=heat_series,
+                    nominal_capacity=cfg.get("scaling_factor", 1.0)
+                )
+            }
+        )
+    )
 
 def align_timeseries(series, timeindex, strict=True):
     series = pd.Series(series)
@@ -143,11 +169,50 @@ def add_pv(es, buses, cfg, input_data):
 
     es.add(pv)
 
+# add gas immport
+def add_gas_import(es, buses, cfg, input_data):
+
+    es.add(
+        solph.components.Source(
+            label="gas_import",
+            outputs={
+                buses[cfg["bus"]]: solph.Flow(
+                    variable_costs=cfg.get("variable_costs", 0.06)
+                )
+            }
+        )
+    )
+
+# add gas boiler
+def add_gas_boiler(es, buses, cfg, input_data):
+
+    boiler = solph.components.Converter(
+        label="gas_boiler",
+        inputs={
+            buses[cfg["fuel_bus"]]: solph.Flow(
+                variable_costs=cfg.get("variable_costs", 0.1)
+            )
+        },
+        outputs={
+            buses[cfg["heat_bus"]]: solph.Flow(
+                nominal_value=cfg.get("capacity", 50),
+                variable_costs=0
+            )
+        },
+        conversion_factors={
+            buses[cfg["heat_bus"]]: cfg.get("efficiency", 0.9)
+        }
+    )
+
+    es.add(boiler)
 
 # component registry
 TECH_MAPPING = {
     "demand": add_demand,
+    "heat_demand": add_heat_demand,
     "grid": add_grid_import,
     "grid_feedin": add_grid_feedin,
-    "pv": add_pv
+    "pv": add_pv,
+    "gas_import": add_gas_import,
+    "gas_boiler": add_gas_boiler
 }

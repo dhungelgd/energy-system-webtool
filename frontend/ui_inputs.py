@@ -83,14 +83,14 @@ def render_component(comp):
     input_data = {}
 
     #timeseries data
-    ts = schema.get("timeseries")
+    ts_cfg = schema.get("timeseries")
 
-    if ts:
-        column, series = render_timeseries(ts, comp)
+    if ts_cfg:
+        column, series = render_timeseries(ts_cfg, comp)
 
         if series is not None:
             tech_inputs[comp]["column"] = column
-            input_data[ts["key"]] = series
+            input_data[ts_cfg["key"]] = series
 
     # static inputs
     for field in schema.get("inputs", []):
@@ -99,7 +99,7 @@ def render_component(comp):
         label = field["label"]
         ftype = field["type"]
 
-        # number input (now supports step from registry)
+        # number input
         if ftype == "number":
 
             tech_inputs[comp][key] = st.number_input(
@@ -115,6 +115,15 @@ def render_component(comp):
             tech_inputs[comp][key] = st.selectbox(
                 label,
                 field.get("options", []),
+                key=f"{comp}_{key}"
+            )
+
+        # checkbox
+        elif ftype == "checkbox":
+
+            tech_inputs[comp][key] = st.checkbox(
+                label,
+                value=field.get("default", False),
                 key=f"{comp}_{key}"
             )
 

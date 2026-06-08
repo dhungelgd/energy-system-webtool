@@ -76,7 +76,7 @@ else:
             f"Annual system cost: {meta_results['objective']:.2f} €"
         )
 
-        flows = process_results(results, bus_name="electricity")
+        flows = process_results(results, bus_name="heat")
 
         st.subheader("Flows")
         st.dataframe(flows)
@@ -88,7 +88,7 @@ else:
 
         energy_flows_plot = plot_energy_flows(
             flows,
-            "electricity"
+            "heat"
         )
 
         st.pyplot(energy_flows_plot)
