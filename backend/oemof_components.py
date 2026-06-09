@@ -195,7 +195,7 @@ def add_gas_boiler(es, buses, cfg, input_data):
         },
         outputs={
             buses[cfg["heat_bus"]]: solph.Flow(
-                nominal_value=cfg.get("capacity", 50),
+                nominal_capacity=cfg.get("capacity", 50),
                 variable_costs=0
             )
         },

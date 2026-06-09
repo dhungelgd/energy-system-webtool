@@ -5,7 +5,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import streamlit as st
 from backend.scenario_runner import run_scenario
-from backend.postprocessing import process_results, compute_energy_sums
+from backend.postprocessing import process_results, compute_energy_sums, get_active_bus_labels
 from backend.plotting import plot_energy_flows
 from backend.config_builder import build_config
 from frontend.ui_inputs import build_ui
@@ -76,19 +76,39 @@ else:
             f"Annual system cost: {meta_results['objective']:.2f} €"
         )
 
-        flows = process_results(results, bus_name="heat")
+        st.subheader("Energy System Results")
 
-        st.subheader("Flows")
-        st.dataframe(flows)
+        active_buses = get_active_bus_labels(selected_techs, config)
+        st.write(active_buses)
+        for bus in active_buses:
 
-        st.subheader("Energy Summary")
-        st.write(compute_energy_sums(flows))
+            flows = process_results(results, bus_name=bus)
 
-        st.subheader("Visualization")
+            if flows is None or flows.empty:
+                continue
 
-        energy_flows_plot = plot_energy_flows(
-            flows,
-            "heat"
-        )
+            st.markdown("---")
+            st.subheader(f"{bus.capitalize()} Results")
 
-        st.pyplot(energy_flows_plot)
+            st.subheader("Flows")
+            st.dataframe(flows)
+
+            st.subheader("Energy Flow Summary")
+            st.write(compute_energy_sums(flows))
+
+            st.subheader("Visualization")
+
+            for bus in active_buses:
+
+                flows = process_results(results, bus_name=bus)
+
+                if flows is None or flows.empty:
+                    continue
+
+                energy_flows_plot = plot_energy_flows(
+                    flows=flows,
+                    bus_name=bus
+                )
+
+                st.markdown(f"### {bus.capitalize()} Energy Flows")
+                st.pyplot(energy_flows_plot)

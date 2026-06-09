@@ -1,16 +1,32 @@
 from oemof.solph import views
+import pandas as pd
 
 # Extract flows from a bus
 def get_bus_flows(results, bus_name):
 
-    flows = views.node(results, bus_name)["sequences"]
+    try:
+        node = views.node(results, bus_name)
 
-    return flows
+        if node is None:
+            return pd.DataFrame()
+
+        flows = node.get("sequences")
+
+        if flows is None or len(flows) == 0:
+            return pd.DataFrame()
+
+        return flows
+
+    except Exception:
+        return pd.DataFrame()
 
 # Flatten column names
 def flatten_flows(df):
     # convert multi-index columns to simple string names
     # e.g. (("pv", "electricity"), "flow")  --> "pv_electricity"
+
+    if df is None or df.empty:
+        return df
 
     df_flat = df.copy()
     df_flat.columns = [
@@ -22,6 +38,9 @@ def flatten_flows(df):
 # Get supply and demand columns automatically
 def split_supply_demand(flows, bus_name):
     # split flows into supply (to bus) and demand (from bus)
+
+    if flows is None or flows.empty:
+        return [], []
 
     supply_cols = [c for c in flows.columns if c.endswith(f"-->{bus_name}")]
     demand_cols = [c for c in flows.columns if c.startswith(f"{bus_name}-->")]
@@ -40,3 +59,19 @@ def process_results(results, bus_name):
     flows = flatten_flows(flows)
 
     return flows
+
+# active bus detection
+def get_active_bus_labels(selected_techs, config):
+
+    active_buses = set()
+
+    for tech in selected_techs:
+
+        tech_cfg = config["technologies"].get(tech, {})
+        bus_id = tech_cfg.get("bus")
+
+        if bus_id:
+            bus_label = config["buses"][bus_id]["label"]
+            active_buses.add(bus_label)
+
+    return sorted(active_buses)
