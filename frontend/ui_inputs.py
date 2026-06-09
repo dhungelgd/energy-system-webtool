@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from backend.input_schema import SolverConfig
 from frontend.ui_registry import UI_REGISTRY
+from frontend.ui_defaults import TECH_DEFAULTS
 
 # component selector
 def select_components():
@@ -82,6 +83,8 @@ def render_component(comp):
     tech_inputs = {comp: {}}
     input_data = {}
 
+    defaults = TECH_DEFAULTS.get(comp, {})
+
     #timeseries data
     ts_cfg = schema.get("timeseries")
 
@@ -99,12 +102,14 @@ def render_component(comp):
         label = field["label"]
         ftype = field["type"]
 
+        value = defaults.get(key, field.get("default", 0.0))
+
         # number input
         if ftype == "number":
 
             tech_inputs[comp][key] = st.number_input(
                 label,
-                value=field.get("default", 0.0),
+                value=value,
                 step=field.get("step", 0.1),
                 key=f"{comp}_{key}"
             )
