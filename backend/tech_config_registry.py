@@ -52,7 +52,7 @@ def pv_config(tech_inputs=None, input_data=None, **kwargs):
         "bus": "electricity_bus",
         "mode": pv.get("mode", "fixed"),
         "capacity": pv.get("capacity", 10),
-        "maximum": pv.get("maximum", 100),
+        "maximum": pv.get("maximum", None),
         "profile_key": pv.get("profile_key", "pv"),
         "capex": pv.get("capex", 1200),
         "opex": pv.get("opex", 0.02),
@@ -97,8 +97,15 @@ def gas_boiler_config(tech_inputs=None, input_data=None, **kwargs):
         "fuel_bus": "gas_bus",
         "heat_bus": "heat_bus",
         "efficiency": gb.get("efficiency", 0.9),
-        "variable_costs": gb.get("variable_costs", 0.06),
-        "capacity": gb.get("capacity", 50)
+        "variable_costs": gb.get("variable_costs", 0.1),
+        "capacity": gb.get("capacity", 50),
+        "mode": gb.get("mode", "fixed"),
+        "maximum": gb.get("maximum", None),
+        "capex": gb.get("capex", 150),
+        "opex": gb.get("opex", 0.03),
+        "lifetime": gb.get("lifetime", 20),
+        "interest_rate": gb.get("interest_rate", 0.03)
+
     }
 
 TECH_CONFIG_REGISTRY = {

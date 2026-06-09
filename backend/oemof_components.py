@@ -9,6 +9,32 @@ def calculate_epc(capex, opex, lifetime, interest_rate):
     fixed_opex_per_year = opex * capex / 100
     return epc_capex + fixed_opex_per_year
 
+# create a function to distinguish dispatch or investment mode
+def get_investment(cfg):
+
+    mode = cfg.get("mode", "fixed")
+
+    if mode == "fixed":
+        return cfg.get("capacity", None)
+
+    elif mode == "invest":
+
+        ep_costs = calculate_epc(
+            capex=cfg.get("capex", 0),
+            opex=cfg.get("opex", 2.0),
+            lifetime=cfg.get("lifetime", None),
+            interest_rate=cfg.get("interest_rate", 3)
+        )
+
+        return solph.Investment(
+            ep_costs=ep_costs,
+            maximum=cfg.get("maximum", None)
+        )
+
+    else:
+        raise ValueError(
+            f"Invalid mode '{mode}'. Allowed: 'fixed', 'invest'"
+        )
 
 def add_demand(es, buses, cfg, input_data):
 
@@ -127,45 +153,17 @@ def add_pv(es, buses, cfg, input_data):
         index=timeindex[:len(pv_profile)]
     )
 
-    # dispatch optimization (fixed pv size)
-    if cfg.get("mode", "fixed") == "fixed":
+    nominal_capacity = get_investment(cfg)
 
-        pv = solph.components.Source(
-            label="pv",
-            outputs={
-                buses[cfg["bus"]]: solph.Flow(
-                    fix=pv_series,
-                    nominal_capacity=cfg.get("capacity", 10)
-                )
-            }
-        )
-
-    # investment optimization
-    elif cfg.get("mode") == "invest":
-
-        ep_costs = calculate_epc(
-            capex=cfg.get("capex", 1000),
-            opex=cfg.get("opex", 2.0),
-            lifetime=cfg.get("lifetime", 25),
-            interest_rate=cfg.get("interest_rate", 3),
-        )
-
-        pv = solph.components.Source(
-            label="pv",
-            outputs={
-                buses[cfg["bus"]]: solph.Flow(
-                    fix=pv_series,
-                    nominal_capacity=solph.Investment(
-                        ep_costs=ep_costs, maximum=cfg.get("maximum", 100)
-                    )
-                )
-            }
-        )
-
-    else:
-        raise ValueError(
-            f"Unknown PV mode: {cfg.get('mode')}"
-        )
+    pv = solph.components.Source(
+        label="pv",
+        outputs={
+            buses[cfg["bus"]]: solph.Flow(
+                fix=pv_series,
+                nominal_capacity=nominal_capacity
+            )
+        }
+    )
 
     es.add(pv)
 
@@ -186,6 +184,8 @@ def add_gas_import(es, buses, cfg, input_data):
 # add gas boiler
 def add_gas_boiler(es, buses, cfg, input_data):
 
+    nominal_capacity = get_investment(cfg)
+
     boiler = solph.components.Converter(
         label="gas_boiler",
         inputs={
@@ -195,7 +195,7 @@ def add_gas_boiler(es, buses, cfg, input_data):
         },
         outputs={
             buses[cfg["heat_bus"]]: solph.Flow(
-                nominal_capacity=cfg.get("capacity", 50),
+                nominal_capacity=nominal_capacity,
                 variable_costs=0
             )
         },

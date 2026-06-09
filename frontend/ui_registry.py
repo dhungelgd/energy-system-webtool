@@ -72,16 +72,16 @@ UI_REGISTRY = {
         "label": "PV System",
         "inputs": [
             {
-                "key": "capacity",
-                "type": "number",
-                "label": "Capacity (kW)",
-                "default": 10.0
-            },
-            {
                 "key": "mode",
                 "type": "selectbox",
                 "label": "Mode",
                 "options": ["fixed", "invest"]
+            },
+            {
+                "key": "capacity",
+                "type": "number",
+                "label": "Capacity (kW)",
+                "default": 10.0
             },
             {
                 "key": "capex",
@@ -171,6 +171,12 @@ UI_REGISTRY = {
         "label": "Gas Boiler",
         "inputs": [
             {
+                "key": "mode",
+                "type": "selectbox",
+                "label": "Mode",
+                "options": ["fixed", "invest"]
+            },
+            {
                 "key": "efficiency",
                 "type": "number",
                 "label": "Efficiency",
@@ -179,14 +185,45 @@ UI_REGISTRY = {
             {
                 "key": "variable_costs",
                 "type": "number",
-                "label": "Gas Cost (€/kWh_fuel)",
-                "default": 0.1
+                "label": "Variable Costs (€/kWh)",
+                "default": 0.0
             },
             {
                 "key": "capacity",
                 "type": "number",
                 "label": "Capacity (kW)",
                 "default": 50.0
+            },
+
+            {
+                "key": "capex",
+                "type": "number",
+                "label": "CAPEX (€/kW)",
+                "default": 150.0
+            },
+            {
+                "key": "opex",
+                "type": "number",
+                "label": "OPEX fraction",
+                "default": 3.0
+            },
+            {
+                "key": "lifetime",
+                "type": "number",
+                "label": "Lifetime (years)",
+                "default": 20.0
+            },
+            {
+                "key": "interest_rate",
+                "type": "number",
+                "label": "Interest rate",
+                "default": 3.0
+            },
+            {
+                "key": "maximum",
+                "type": "number",
+                "label": "Maximum installable capacity (kW)",
+                "default": None
             }
         ]
     }
