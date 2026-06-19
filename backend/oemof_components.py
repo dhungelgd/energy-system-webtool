@@ -167,7 +167,7 @@ def add_pv(es, buses, cfg, input_data):
 
     es.add(pv)
 
-# add gas immport
+# add gas import
 def add_gas_import(es, buses, cfg, input_data):
 
     es.add(
@@ -175,7 +175,7 @@ def add_gas_import(es, buses, cfg, input_data):
             label="gas_import",
             outputs={
                 buses[cfg["bus"]]: solph.Flow(
-                    variable_costs=cfg.get("variable_costs", 0.06)
+                    variable_costs=cfg.get("variable_costs", 0.1)
                 )
             }
         )
@@ -189,14 +189,11 @@ def add_gas_boiler(es, buses, cfg, input_data):
     boiler = solph.components.Converter(
         label="gas_boiler",
         inputs={
-            buses[cfg["fuel_bus"]]: solph.Flow(
-                variable_costs=cfg.get("variable_costs", 0.1)
-            )
+            buses[cfg["fuel_bus"]]: solph.Flow()
         },
         outputs={
             buses[cfg["heat_bus"]]: solph.Flow(
-                nominal_capacity=nominal_capacity,
-                variable_costs=0
+                nominal_capacity=nominal_capacity
             )
         },
         conversion_factors={
@@ -206,6 +203,50 @@ def add_gas_boiler(es, buses, cfg, input_data):
 
     es.add(boiler)
 
+# add heat pump
+def add_heat_pump(es, buses, cfg, input_data):
+
+    nominal_capacity = get_investment(cfg)
+
+    # cop handling
+    cop_mode = cfg.get("cop_mode", "constant")
+
+    if cop_mode == "constant":
+        cop = cfg.get("cop_value", 3.0)
+
+    elif cop_mode == "timeseries":
+        profile = cfg.get("cop_series")
+
+        if profile is None:
+            raise ValueError("Missing COP time series in config")
+
+        timeindex = es.timeindex
+
+        cop = pd.Series(
+            profile,
+            index=timeindex[:len(profile)]
+        )
+
+    else:
+        raise ValueError(f"Invalid COP mode: {cop_mode}")
+
+    heat_pump = solph.components.Converter(
+        label="heat_pump",
+
+        inputs={buses["electricity_bus"]: solph.Flow()},
+
+        outputs={
+            buses["heat_bus"]: solph.Flow(
+                nominal_capacity=nominal_capacity
+            )
+        },
+        conversion_factors={
+                    buses["electricity_bus"]: 1 / cop
+                }
+            )
+
+    es.add(heat_pump)
+
 # component registry
 TECH_MAPPING = {
     "demand": add_demand,
@@ -214,5 +255,6 @@ TECH_MAPPING = {
     "grid_feedin": add_grid_feedin,
     "pv": add_pv,
     "gas_import": add_gas_import,
-    "gas_boiler": add_gas_boiler
+    "gas_boiler": add_gas_boiler,
+    "heat_pump": add_heat_pump
 }

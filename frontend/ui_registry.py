@@ -9,7 +9,7 @@ UI_REGISTRY = {
         "timeseries": {
             "key": "electricity_demand",
             "upload_label": "Upload demand timeseries data",
-            "default_column": 1
+            "default_column": 2
         },
 
         "inputs": [
@@ -17,7 +17,7 @@ UI_REGISTRY = {
                 "key": "scaling_factor",
                 "type": "number",
                 "label": "Scaling Factor",
-                "default": 1.0,
+                "default": 30000.0,
                 "step": 1.0
             }
         ]
@@ -30,14 +30,14 @@ UI_REGISTRY = {
         "timeseries": {
             "key": "heat_demand",
             "upload_label": "Upload heat demand data",
-            "default_column": 4
+            "default_column": 1
         },
         "inputs": [
             {
                 "key": "scaling_factor",
                 "type": "number",
                 "label": "Scaling Factor",
-                "default": 1.0,
+                "default": 90000.0,
                 "step": 1.0
             }
         ]
@@ -79,17 +79,17 @@ UI_REGISTRY = {
         "timeseries": {
             "key": "pv",
             "upload_label": "Upload PV profile timeseries data",
-            "default_column": 7
+            "default_column": 3
         }
     },
 
-    # battery
-    "battery": {
-        "label": "Battery Storage",
-        "inputs": [
-            *PARAMS_BLOCK
-        ]
-    },
+    # # battery
+    # "battery": {
+    #     "label": "Battery Storage",
+    #     "inputs": [
+    #         *PARAMS_BLOCK
+    #     ]
+    # },
 
     # gas import
         "gas_import": {
@@ -110,5 +110,41 @@ UI_REGISTRY = {
         "inputs": [
             *PARAMS_BLOCK
         ]
+    },
+
+    # heat pump
+    "heat_pump": {
+        "label": "Heat Pump",
+
+        "inputs": [
+            {
+                "key": "cop_mode",
+                "type": "selectbox",
+                "label": "COP mode",
+                "options": ["constant", "timeseries"]
+            },
+
+            {
+                "key": "cop_value",
+                "type": "number",
+                "label": "COP (constant)",
+                "visible_if": {"cop_mode": "constant"}
+            },
+
+            {
+                "key": "cop_series",
+                "type": "timeseries",
+                "label": "COP profile",
+                "visible_if": {"cop_mode": "timeseries"}
+            },
+
+            *PARAMS_BLOCK
+        ],
+
+            "timeseries": {
+                "key": "cop_series",
+                "upload_label": "Upload COP timeseries data",
+                "default_column": 6
+            }
     }
 }

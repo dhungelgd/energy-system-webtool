@@ -18,7 +18,7 @@ def select_components():
 def time_input_block():
 
     st.sidebar.header("Time Settings")
-    start_date = st.sidebar.date_input("Start date", pd.to_datetime("2025-01-01"))
+    start_date = st.sidebar.date_input("Start date", pd.to_datetime("2021-01-01"))
     days = st.sidebar.number_input("Periods (Number of days)", 1, 366, 365)
     freq_map = {"1h": 24,"15min": 96}
 
@@ -40,6 +40,21 @@ def time_input_block():
     )
 
     return timeindex
+
+def field_is_visible(field, current_values):
+
+    rule = field.get("visible_if")
+
+    if not rule:
+        return True
+
+    for key, expected_value in rule.items():
+
+        actual_value = current_values.get(key)
+        if actual_value != expected_value:
+            return False
+
+    return True
 
 # generic timeseries handler
 def render_timeseries(cfg, comp):
@@ -85,20 +100,60 @@ def render_component(comp):
 
     defaults = TECH_DEFAULTS.get(comp, {})
 
+    # static control inputs
+    for field in schema.get("inputs", []):
+
+        # render ONLY control fields first (e.g. cop_mode)
+        if field.get("key") == "cop_mode":
+            value = defaults.get("cop_mode", "constant")
+
+            tech_inputs[comp]["cop_mode"] = st.selectbox(
+                field["label"],
+                field["options"],
+                index=field["options"].index(value)
+                if value in field["options"] else 0,
+                key=f"{comp}_cop_mode"
+            )
+
     #timeseries data
     ts_cfg = schema.get("timeseries")
 
     if ts_cfg:
-        column, series = render_timeseries(ts_cfg, comp)
 
-        if series is not None:
-            tech_inputs[comp]["column"] = column
-            input_data[ts_cfg["key"]] = series
+        use_timeseries = True
+
+        if comp == "heat_pump":
+            use_timeseries = (
+                    tech_inputs[comp].get(
+                        "cop_mode",
+                        defaults.get("cop_mode", "constant")
+                    ) == "timeseries"
+            )
+
+        if use_timeseries:
+
+            column, series = render_timeseries(ts_cfg, comp)
+
+            if series is not None:
+
+                tech_inputs[comp][ts_cfg["key"]] = column
+                if comp == "heat_pump":
+                    input_data["cop_series"] = series
+                else:
+                    input_data[ts_cfg["key"]] = series
 
     # static inputs
     for field in schema.get("inputs", []):
 
         key = field["key"]
+        # skip COP mode
+        if key == "cop_mode":
+            continue
+
+        # visibility control
+        if not field_is_visible(field, tech_inputs[comp]):
+            continue
+
         label = field["label"]
         ftype = field["type"]
 

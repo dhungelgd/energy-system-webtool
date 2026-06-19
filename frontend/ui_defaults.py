@@ -1,6 +1,6 @@
 TECH_DEFAULTS = {
     "pv": {
-        "capacity": 10.0,
+        "capacity": None,
         "capex": 1200.0,
         "opex": 2.0,
         "lifetime": 25.0,
@@ -9,14 +9,14 @@ TECH_DEFAULTS = {
     },
 
     "gas_boiler": {
-        "capacity": 50.0,
-        "capex": 150.0,
-        "opex": 2.0,
+        "capacity": None,
+        "capex": 175.0,
+        "opex": 3.0,
         "lifetime": 20.0,
         "interest_rate": 3.0,
         "maximum": None,
         "efficiency": 0.9,
-        "variable_costs": 0.1
+        "variable_costs": None
     },
 
     "battery": {
@@ -36,5 +36,17 @@ TECH_DEFAULTS = {
 
     "grid_feedin": {
         "feedin_tariff": 0.08
+    },
+
+    "heat_pump": {
+        "cop_mode": "constant",
+        "cop_value": 3.5,
+        "capacity": None,
+        "maximum": None,
+        "capex": 1200.0,
+        "opex": 1.0,
+        "lifetime": 20.0,
+        "interest_rate": 3.0,
+        "variable_costs": None
     }
 }

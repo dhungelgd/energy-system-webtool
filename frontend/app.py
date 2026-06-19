@@ -79,7 +79,7 @@ else:
         st.subheader("Energy System Results")
 
         active_buses = get_active_bus_labels(selected_techs, config)
-        st.write(active_buses)
+
         for bus in active_buses:
 
             flows = process_results(results, bus_name=bus)
@@ -96,19 +96,19 @@ else:
             st.subheader("Energy Flow Summary")
             st.write(compute_energy_sums(flows))
 
-            st.subheader("Visualization")
+        st.subheader("Visualization")
 
-            for bus in active_buses:
+        for bus in active_buses:
 
-                flows = process_results(results, bus_name=bus)
+            flows = process_results(results, bus_name=bus)
 
-                if flows is None or flows.empty:
-                    continue
+            if flows is None or flows.empty:
+                continue
 
-                energy_flows_plot = plot_energy_flows(
-                    flows=flows,
-                    bus_name=bus
-                )
+            energy_flows_plot = plot_energy_flows(
+                flows=flows,
+                bus_name=bus
+            )
 
-                st.markdown(f"### {bus.capitalize()} Energy Flows")
-                st.pyplot(energy_flows_plot)
+            st.markdown(f"### {bus.capitalize()} Energy Flows")
+            st.pyplot(energy_flows_plot)

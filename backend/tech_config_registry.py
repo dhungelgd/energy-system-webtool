@@ -108,6 +108,35 @@ def gas_boiler_config(tech_inputs=None, input_data=None, **kwargs):
 
     }
 
+def heat_pump_config(tech_inputs=None, input_data=None, **kwargs):
+
+    hp = tech_inputs.get("heat_pump", {}) if tech_inputs else {}
+
+    return {
+        "type": "heat_pump",
+        "electricity_bus": "electricity_bus",
+        "heat_bus": "heat_bus",
+
+        # COP handling
+        "cop_mode": hp.get("cop_mode", "constant"),
+        "cop_value": hp.get("cop_value", 3.5),
+
+        # timeseries handling
+        "cop_series": input_data.get("cop_series"),
+
+        # investment / sizing
+        "mode": hp.get("mode", "fixed"),
+        "capacity": hp.get("capacity", None),
+        "maximum": hp.get("maximum", None),
+
+        # economics
+        "variable_costs": hp.get("variable_costs", 0.0),
+        "capex": hp.get("capex", 1200),
+        "opex": hp.get("opex", 0.02),
+        "lifetime": hp.get("lifetime", 20),
+        "interest_rate": hp.get("interest_rate", 0.03)
+    }
+
 TECH_CONFIG_REGISTRY = {
     "demand": demand_config,
     "heat_demand": heat_demand_config,
@@ -116,5 +145,6 @@ TECH_CONFIG_REGISTRY = {
     "pv": pv_config,
     "battery": battery_config,
     "gas_import": gas_import_config,
-    "gas_boiler": gas_boiler_config
+    "gas_boiler": gas_boiler_config,
+    "heat_pump": heat_pump_config
 }
