@@ -75,3 +75,41 @@ def get_active_bus_labels(selected_techs, config):
             active_buses.add(bus_label)
 
     return sorted(active_buses)
+
+# extract investment capacities from results
+def get_investment_capacities(results):
+
+    capacities = {}
+
+    for (comp, bus), data in results.items():
+
+        if not hasattr(comp, "label"):
+            continue
+
+        tech = comp.label
+
+        scalars = data.get("scalars")
+
+        if scalars is None:
+            continue
+
+        invest_val = None
+
+        try:
+            invest_val = scalars.get("invest", None)
+        except Exception:
+            pass
+
+        if invest_val is None:
+            try:
+                for item in scalars:
+                    if isinstance(item, tuple) and item[0] == "invest":
+                        invest_val = item[1]
+                        break
+            except Exception:
+                pass
+
+        if invest_val is not None:
+            capacities[tech] = float(invest_val)
+
+    return capacities

@@ -5,7 +5,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import streamlit as st
 from backend.scenario_runner import run_scenario
-from backend.postprocessing import process_results, compute_energy_sums, get_active_bus_labels
+from backend.postprocessing import process_results, compute_energy_sums, get_active_bus_labels, get_investment_capacities
 from backend.plotting import plot_energy_flows
 from backend.config_builder import build_config
 from frontend.ui_inputs import build_ui
@@ -112,3 +112,8 @@ else:
 
             st.markdown(f"### {bus.capitalize()} Energy Flows")
             st.pyplot(energy_flows_plot)
+
+        invest_capacities = get_investment_capacities(results)
+
+        st.subheader("Investment Results")
+        st.dataframe(invest_capacities)
