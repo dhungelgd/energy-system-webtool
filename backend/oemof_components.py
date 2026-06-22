@@ -15,7 +15,16 @@ def get_investment(cfg):
     mode = cfg.get("mode", "fixed")
 
     if mode == "fixed":
-        return cfg.get("capacity", None)
+        capacity = cfg.get("capacity")
+
+        # ensure that fixed mode needs a capacity input from user
+        if capacity is None or capacity <= 0:
+            raise ValueError(
+                f"[{cfg.get('type')}] fixed mode requires capacity > 0. "
+                f"Please set a value in the UI."
+            )
+
+        return float(capacity)
 
     elif mode == "invest":
 
