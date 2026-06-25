@@ -7,8 +7,8 @@ def demand_config(tech_inputs=None, input_data=None, **kwargs):
     return {
         "type": "demand",
         "bus": "electricity_bus",
-        "scaling_factor": demand.get("scaling_factor", 1.0),
-        "profile_data": input_data.get("electricity_demand", [])
+        "scaling_factor": demand.get("scaling_factor"),
+        "profile_data": input_data.get("electricity_demand")
     }
 
 def heat_demand_config(tech_inputs=None, input_data=None, **kwargs):
@@ -20,8 +20,8 @@ def heat_demand_config(tech_inputs=None, input_data=None, **kwargs):
     return {
         "type": "heat_demand",
         "bus": "heat_bus",
-        "scaling_factor": heat_demand.get("scaling_factor", 1.0),
-        "profile_data": input_data.get("heat_demand", [])
+        "scaling_factor": heat_demand.get("scaling_factor"),
+        "profile_data": input_data.get("heat_demand")
     }
 
 def grid_config(tech_inputs=None, **kwargs):
@@ -32,15 +32,17 @@ def grid_config(tech_inputs=None, **kwargs):
     return {
         "type": "grid",
         "bus": "electricity_bus",
-        "variable_costs": grid.get("variable_costs", 0.3)
+        "variable_costs": grid.get("variable_costs")
     }
 
 def grid_feedin_config(tech_inputs, input_data):
 
+    grid_feedin = tech_inputs.get("grid_feedin", {})
+
     return {
         "type": "grid_feedin",
         "bus": "electricity_bus",
-        "feedin_tariff": tech_inputs.get("feedin_tariff", 0.06)
+        "feedin_tariff": grid_feedin.get("feedin_tariff")
     }
 
 def pv_config(tech_inputs=None, input_data=None, **kwargs):
@@ -50,14 +52,14 @@ def pv_config(tech_inputs=None, input_data=None, **kwargs):
     return {
         "type": "pv",
         "bus": "electricity_bus",
-        "mode": pv.get("mode", "fixed"),
-        "capacity": pv.get("capacity", 10),
-        "maximum": pv.get("maximum", None),
+        "mode": pv.get("mode"),
+        "capacity": pv.get("capacity"),
+        "maximum": pv.get("maximum"),
         "profile_key": pv.get("profile_key", "pv"),
-        "capex": pv.get("capex", 1200),
-        "opex": pv.get("opex", 0.02),
-        "lifetime": pv.get("lifetime", 20),
-        "interest_rate": pv.get("interest_rate", 0.03),
+        "capex": pv.get("capex"),
+        "opex": pv.get("opex"),
+        "lifetime": pv.get("lifetime"),
+        "interest_rate": pv.get("interest_rate"),
     }
 
 
@@ -68,14 +70,14 @@ def battery_config(tech_inputs=None, **kwargs):
     return {
         "type": "battery",
         "bus": "electricity_bus",
-        "capacity": bat.get("capacity", 10),
-        "loss_rate": bat.get("loss_rate", 0.01),
-        "inflow_conversion_factor": bat.get("inflow_conversion_factor", 0.95),
-        "mode": bat.get("mode", "fixed"),
-        "capex": bat.get("capex", 500),
-        "opex": bat.get("opex", 0.01),
-        "lifetime": bat.get("lifetime", 15),
-        "interest_rate": bat.get("interest_rate", 0.06),
+        "capacity": bat.get("capacity"),
+        "loss_rate": bat.get("loss_rate"),
+        "inflow_conversion_factor": bat.get("inflow_conversion_factor"),
+        "mode": bat.get("mode"),
+        "capex": bat.get("capex"),
+        "opex": bat.get("opex"),
+        "lifetime": bat.get("lifetime"),
+        "interest_rate": bat.get("interest_rate"),
     }
 
 def gas_import_config(tech_inputs=None, input_data=None, **kwargs):
@@ -85,7 +87,7 @@ def gas_import_config(tech_inputs=None, input_data=None, **kwargs):
     return {
         "type": "gas_import",
         "bus": "gas_bus",
-        "variable_costs": gi.get("variable_costs", 0.1)
+        "variable_costs": gi.get("variable_costs")
     }
 
 def gas_boiler_config(tech_inputs=None, input_data=None, **kwargs):
@@ -96,15 +98,15 @@ def gas_boiler_config(tech_inputs=None, input_data=None, **kwargs):
         "type": "gas_boiler",
         "fuel_bus": "gas_bus",
         "heat_bus": "heat_bus",
-        "efficiency": gb.get("efficiency", 0.9),
-        "variable_costs": gb.get("variable_costs", 0.1),
-        "capacity": gb.get("capacity", 50),
-        "mode": gb.get("mode", "fixed"),
-        "maximum": gb.get("maximum", None),
-        "capex": gb.get("capex", 150),
-        "opex": gb.get("opex", 0.03),
-        "lifetime": gb.get("lifetime", 20),
-        "interest_rate": gb.get("interest_rate", 0.03)
+        "efficiency": gb.get("efficiency"),
+        "variable_costs": gb.get("variable_costs"),
+        "capacity": gb.get("capacity"),
+        "mode": gb.get("mode"),
+        "maximum": gb.get("maximum"),
+        "capex": gb.get("capex"),
+        "opex": gb.get("opex"),
+        "lifetime": gb.get("lifetime"),
+        "interest_rate": gb.get("interest_rate")
 
     }
 
@@ -118,23 +120,23 @@ def heat_pump_config(tech_inputs=None, input_data=None, **kwargs):
         "heat_bus": "heat_bus",
 
         # COP handling
-        "cop_mode": hp.get("cop_mode", "constant"),
-        "cop_value": hp.get("cop_value", 3.5),
+        "cop_mode": hp.get("cop_mode"),
+        "cop_value": hp.get("cop_value"),
 
         # timeseries handling
         "cop_series": input_data.get("cop_series"),
 
         # investment / sizing
-        "mode": hp.get("mode", "fixed"),
-        "capacity": hp.get("capacity", None),
-        "maximum": hp.get("maximum", None),
+        "mode": hp.get("mode"),
+        "capacity": hp.get("capacity"),
+        "maximum": hp.get("maximum"),
 
         # economics
-        "variable_costs": hp.get("variable_costs", 0.0),
-        "capex": hp.get("capex", 1200),
-        "opex": hp.get("opex", 0.02),
-        "lifetime": hp.get("lifetime", 20),
-        "interest_rate": hp.get("interest_rate", 0.03)
+        "variable_costs": hp.get("variable_costs"),
+        "capex": hp.get("capex"),
+        "opex": hp.get("opex"),
+        "lifetime": hp.get("lifetime"),
+        "interest_rate": hp.get("interest_rate")
     }
 
 TECH_CONFIG_REGISTRY = {

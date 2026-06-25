@@ -29,10 +29,10 @@ def get_investment(cfg):
     elif mode == "invest":
 
         ep_costs = calculate_epc(
-            capex=cfg.get("capex", 0),
-            opex=cfg.get("opex", 2.0),
-            lifetime=cfg.get("lifetime", None),
-            interest_rate=cfg.get("interest_rate", 3)
+            capex=cfg.get("capex"),
+            opex=cfg.get("opex"),
+            lifetime=cfg.get("lifetime"),
+            interest_rate=cfg.get("interest_rate")
         )
 
         return solph.Investment(
@@ -66,7 +66,7 @@ def add_demand(es, buses, cfg, input_data):
             inputs={
                 buses[cfg["bus"]]: solph.Flow(
                     fix=demand_series,
-                    nominal_capacity=cfg.get("scaling_factor", 1.0)
+                    nominal_capacity=cfg.get("scaling_factor")
                 )
             }
         )
@@ -93,7 +93,7 @@ def add_heat_demand(es, buses, cfg, input_data):
             inputs={
                 buses[cfg["bus"]]: solph.Flow(
                     fix=heat_series,
-                    nominal_capacity=cfg.get("scaling_factor", 1.0)
+                    nominal_capacity=cfg.get("scaling_factor")
                 )
             }
         )
@@ -121,7 +121,7 @@ def add_grid_import(es, buses, cfg, input_data):
         label="grid_import",
         outputs={
             buses[cfg["bus"]]: solph.Flow(
-                variable_costs=cfg.get("variable_costs", 0.3)
+                variable_costs=cfg.get("variable_costs")
             )
         }
     )
@@ -135,7 +135,7 @@ def add_grid_feedin(es, buses, cfg, input_data):
         label="grid_feedin",
         inputs={
             buses[cfg["bus"]]: solph.Flow(
-                variable_costs=-cfg.get("feedin_tariff", 0.078)
+                variable_costs=-cfg.get("feedin_tariff")
             )
         }
     )
@@ -184,7 +184,7 @@ def add_gas_import(es, buses, cfg, input_data):
             label="gas_import",
             outputs={
                 buses[cfg["bus"]]: solph.Flow(
-                    variable_costs=cfg.get("variable_costs", 0.1)
+                    variable_costs=cfg.get("variable_costs")
                 )
             }
         )
@@ -206,7 +206,7 @@ def add_gas_boiler(es, buses, cfg, input_data):
             )
         },
         conversion_factors={
-            buses[cfg["heat_bus"]]: cfg.get("efficiency", 0.9)
+            buses[cfg["heat_bus"]]: cfg.get("efficiency")
         }
     )
 
@@ -221,7 +221,7 @@ def add_heat_pump(es, buses, cfg, input_data):
     cop_mode = cfg.get("cop_mode", "constant")
 
     if cop_mode == "constant":
-        cop = cfg.get("cop_value", 3.0)
+        cop = cfg.get("cop_value")
 
     elif cop_mode == "timeseries":
         profile = cfg.get("cop_series")

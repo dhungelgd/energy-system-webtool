@@ -51,7 +51,8 @@ UI_REGISTRY = {
                 "key": "variable_costs",
                 "label": "Electricity Price (€/kWh)",
                 "type": "number",
-                "default": 0.3
+                "default": 0.3,
+                "step": 0.01
             }
         ]
     },
@@ -64,7 +65,8 @@ UI_REGISTRY = {
                 "key": "feedin_tariff",
                 "label": "Feed-in Tariff (€/kWh)",
                 "type": "number",
-                "default": 0.078
+                "default": 0.078,
+                "step": 0.01,
             }
         ]
     },
@@ -108,7 +110,12 @@ UI_REGISTRY = {
     "gas_boiler": {
         "label": "Gas Boiler",
         "inputs": [
-            *PARAMS_BLOCK
+            *PARAMS_BLOCK,
+            {
+                "key": "efficiency",
+                "type": "number",
+                "label": "Efficiency"
+            },
         ]
     },
 
