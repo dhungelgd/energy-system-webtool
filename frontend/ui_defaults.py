@@ -20,9 +20,20 @@ TECH_DEFAULTS = {
     },
 
     "battery": {
-        "capacity": 10.0,
+        "capacity": None,
         "capex": 400.0,
-        "opex": 1,
+        "opex": 1.0,
+        "lifetime": 15.0,
+        "interest_rate": 3.0,
+        "maximum": None,
+        "loss_rate": 0.01,
+        "efficiency": 0.95
+    },
+
+    "heat_storage": {
+        "capacity": None,
+        "capex": 40.0,
+        "opex": 1.0,
         "lifetime": 15.0,
         "interest_rate": 3.0,
         "maximum": None,

@@ -85,13 +85,60 @@ UI_REGISTRY = {
         }
     },
 
-    # # battery
-    # "battery": {
-    #     "label": "Battery Storage",
-    #     "inputs": [
-    #         *PARAMS_BLOCK
-    #     ]
-    # },
+    # battery
+    "battery": {
+        "label": "Battery Storage",
+        "inputs": [
+            *PARAMS_BLOCK,
+
+            {
+                "key": "efficiency_charge",
+                "type": "number",
+                "label": "Charge efficiency",
+                "default": 0.95
+            },
+            {
+                "key": "efficiency_discharge",
+                "type": "number",
+                "label": "Discharge efficiency",
+                "default": 0.95
+            },
+            {
+                "key": "loss_rate",
+                "type": "number",
+                "label": "Self-discharge rate (/h)",
+                "default": 0.001
+            },
+        ]
+    },
+
+    # heat storage
+    "heat_storage": {
+        "label": "Heat Storage",
+        "inputs": [
+            *PARAMS_BLOCK,
+
+            {
+                "key": "efficiency_charge",
+                "type": "number",
+                "label": "Charge efficiency",
+                "default": 0.95
+            },
+            {
+                "key": "efficiency_discharge",
+                "type": "number",
+                "label": "Discharge efficiency",
+                "default": 0.95
+            },
+            {
+                "key": "loss_rate",
+                "type": "number",
+                "label": "Self-discharge rate (/h)",
+                "default": 0.001
+            },
+        ]
+    },
+
 
     # gas import
         "gas_import": {

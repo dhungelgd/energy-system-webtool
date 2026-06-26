@@ -78,6 +78,27 @@ def battery_config(tech_inputs=None, **kwargs):
         "opex": bat.get("opex"),
         "lifetime": bat.get("lifetime"),
         "interest_rate": bat.get("interest_rate"),
+        "efficiency_charge": bat.get("efficiency_charge"),
+        "efficiency_discharge": bat.get("efficiency_discharge")
+    }
+
+def heat_storage_config(tech_inputs=None, **kwargs):
+
+    hs = tech_inputs.get("heat_storage", {}) if tech_inputs else {}
+
+    return {
+        "type": "heat_storage",
+        "bus": "heat_bus",
+        "capacity": hs.get("capacity"),
+        "loss_rate": hs.get("loss_rate"),
+        "inflow_conversion_factor": hs.get("inflow_conversion_factor"),
+        "mode": hs.get("mode"),
+        "capex": hs.get("capex"),
+        "opex": hs.get("opex"),
+        "lifetime": hs.get("lifetime"),
+        "interest_rate": hs.get("interest_rate"),
+        "efficiency_charge": hs.get("efficiency_charge"),
+        "efficiency_discharge": hs.get("efficiency_discharge")
     }
 
 def gas_import_config(tech_inputs=None, input_data=None, **kwargs):
@@ -148,5 +169,6 @@ TECH_CONFIG_REGISTRY = {
     "battery": battery_config,
     "gas_import": gas_import_config,
     "gas_boiler": gas_boiler_config,
-    "heat_pump": heat_pump_config
+    "heat_pump": heat_pump_config,
+    "heat_storage": heat_storage_config
 }

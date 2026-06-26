@@ -256,6 +256,36 @@ def add_heat_pump(es, buses, cfg, input_data):
 
     es.add(heat_pump)
 
+# add battery
+def add_battery(es, buses, cfg, input_data):
+
+    battery = solph.components.GenericStorage(
+        label="battery",
+        inputs={buses[cfg["bus"]]: solph.Flow()},
+        outputs={buses[cfg["bus"]]: solph.Flow()},
+        nominal_capacity=get_investment(cfg),
+        loss_rate=cfg.get("loss_rate"),
+        inflow_conversion_factor=cfg.get("efficiency_charge"),
+        outflow_conversion_factor=cfg.get("efficiency_discharge")
+    )
+
+    es.add(battery)
+    
+# add heat storage
+def add_heat_storage(es, buses, cfg, input_data):
+
+    heat_storage = solph.components.GenericStorage(
+        label="heat_storage",
+        inputs={buses[cfg["bus"]]: solph.Flow()},
+        outputs={buses[cfg["bus"]]: solph.Flow()},
+        nominal_capacity=get_investment(cfg),
+        loss_rate=cfg.get("loss_rate"),
+        inflow_conversion_factor=cfg.get("efficiency_charge"),
+        outflow_conversion_factor=cfg.get("efficiency_discharge")
+    )
+
+    es.add(heat_storage)
+
 # component registry
 TECH_MAPPING = {
     "demand": add_demand,
@@ -265,5 +295,7 @@ TECH_MAPPING = {
     "pv": add_pv,
     "gas_import": add_gas_import,
     "gas_boiler": add_gas_boiler,
-    "heat_pump": add_heat_pump
+    "heat_pump": add_heat_pump,
+    "battery": add_battery,
+    "heat_storage": add_heat_storage
 }
