@@ -1,165 +1,114 @@
+"""
+Legacy technology configuration registry - DEPRECATED.
+
+This module is deprecated. Use backend.config_factory instead.
+The functions in this module are kept for backward compatibility only.
+"""
+
+import warnings
+from typing import Dict, Any, Callable
+
+from .config_factory import (
+    build_demand_config,
+    build_heat_demand_config,
+    build_grid_config,
+    build_grid_feedin_config,
+    build_pv_config,
+    build_battery_config,
+    build_heat_storage_config,
+    build_gas_import_config,
+    build_gas_boiler_config,
+    build_heat_pump_config,
+    CONFIG_BUILDER_REGISTRY
+)
+
+# Deprecation warning
+warnings.warn(
+    "backend.tech_config_registry is deprecated. Use backend.config_factory instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Legacy function names for backward compatibility
+
 def demand_config(tech_inputs=None, input_data=None, **kwargs):
+    """Legacy demand config - use build_demand_config instead."""
+    from .models import InputData
+    input_data_obj = InputData(**input_data) if input_data else InputData()
+    config = build_demand_config(tech_inputs, input_data_obj)
+    return config.__dict__
 
-    tech_inputs = tech_inputs or {}
-    input_data = input_data or {}
-    demand = tech_inputs.get("demand", {})
-
-    return {
-        "type": "demand",
-        "bus": "electricity_bus",
-        "scaling_factor": demand.get("scaling_factor"),
-        "profile_data": input_data.get("electricity_demand")
-    }
 
 def heat_demand_config(tech_inputs=None, input_data=None, **kwargs):
+    """Legacy heat demand config - use build_heat_demand_config instead."""
+    from .models import InputData
+    input_data_obj = InputData(**input_data) if input_data else InputData()
+    config = build_heat_demand_config(tech_inputs, input_data_obj)
+    return config.__dict__
 
-    tech_inputs = tech_inputs or {}
-    input_data = input_data or {}
-    heat_demand = tech_inputs.get("heat_demand", {})
-
-    return {
-        "type": "heat_demand",
-        "bus": "heat_bus",
-        "scaling_factor": heat_demand.get("scaling_factor"),
-        "profile_data": input_data.get("heat_demand")
-    }
 
 def grid_config(tech_inputs=None, **kwargs):
+    """Legacy grid config - use build_grid_config instead."""
+    from .models import InputData
+    config = build_grid_config(tech_inputs, InputData())
+    return config.__dict__
 
-    tech_inputs = tech_inputs or {}
-    grid = tech_inputs.get("grid", {})
 
-    return {
-        "type": "grid",
-        "bus": "electricity_bus",
-        "variable_costs": grid.get("variable_costs")
-    }
+def grid_feedin_config(tech_inputs=None, input_data=None, **kwargs):
+    """Legacy grid feedin config - use build_grid_feedin_config instead."""
+    from .models import InputData
+    input_data_obj = InputData(**input_data) if input_data else InputData()
+    config = build_grid_feedin_config(tech_inputs, input_data_obj)
+    return config.__dict__
 
-def grid_feedin_config(tech_inputs, input_data):
-
-    grid_feedin = tech_inputs.get("grid_feedin", {})
-
-    return {
-        "type": "grid_feedin",
-        "bus": "electricity_bus",
-        "feedin_tariff": grid_feedin.get("feedin_tariff")
-    }
 
 def pv_config(tech_inputs=None, input_data=None, **kwargs):
-
-    pv = tech_inputs.get("pv", {}) if tech_inputs else {}
-
-    return {
-        "type": "pv",
-        "bus": "electricity_bus",
-        "mode": pv.get("mode"),
-        "capacity": pv.get("capacity"),
-        "maximum": pv.get("maximum"),
-        "profile_key": pv.get("profile_key", "pv"),
-        "capex": pv.get("capex"),
-        "opex": pv.get("opex"),
-        "lifetime": pv.get("lifetime"),
-        "interest_rate": pv.get("interest_rate"),
-    }
+    """Legacy PV config - use build_pv_config instead."""
+    from .models import InputData
+    input_data_obj = InputData(**input_data) if input_data else InputData()
+    config = build_pv_config(tech_inputs, input_data_obj)
+    return config.__dict__
 
 
 def battery_config(tech_inputs=None, **kwargs):
+    """Legacy battery config - use build_battery_config instead."""
+    from .models import InputData
+    config = build_battery_config(tech_inputs, InputData())
+    return config.__dict__
 
-    bat = tech_inputs.get("battery", {}) if tech_inputs else {}
-
-    return {
-        "type": "battery",
-        "bus": "electricity_bus",
-        "capacity": bat.get("capacity"),
-        "loss_rate": bat.get("loss_rate"),
-        "inflow_conversion_factor": bat.get("inflow_conversion_factor"),
-        "mode": bat.get("mode"),
-        "capex": bat.get("capex"),
-        "opex": bat.get("opex"),
-        "lifetime": bat.get("lifetime"),
-        "interest_rate": bat.get("interest_rate"),
-        "efficiency_charge": bat.get("efficiency_charge"),
-        "efficiency_discharge": bat.get("efficiency_discharge")
-    }
 
 def heat_storage_config(tech_inputs=None, **kwargs):
+    """Legacy heat storage config - use build_heat_storage_config instead."""
+    from .models import InputData
+    config = build_heat_storage_config(tech_inputs, InputData())
+    return config.__dict__
 
-    hs = tech_inputs.get("heat_storage", {}) if tech_inputs else {}
-
-    return {
-        "type": "heat_storage",
-        "bus": "heat_bus",
-        "capacity": hs.get("capacity"),
-        "loss_rate": hs.get("loss_rate"),
-        "inflow_conversion_factor": hs.get("inflow_conversion_factor"),
-        "mode": hs.get("mode"),
-        "capex": hs.get("capex"),
-        "opex": hs.get("opex"),
-        "lifetime": hs.get("lifetime"),
-        "interest_rate": hs.get("interest_rate"),
-        "efficiency_charge": hs.get("efficiency_charge"),
-        "efficiency_discharge": hs.get("efficiency_discharge")
-    }
 
 def gas_import_config(tech_inputs=None, input_data=None, **kwargs):
+    """Legacy gas import config - use build_gas_import_config instead."""
+    from .models import InputData
+    input_data_obj = InputData(**input_data) if input_data else InputData()
+    config = build_gas_import_config(tech_inputs, input_data_obj)
+    return config.__dict__
 
-    gi = tech_inputs.get("gas_import", {}) if tech_inputs else {}
-
-    return {
-        "type": "gas_import",
-        "bus": "gas_bus",
-        "variable_costs": gi.get("variable_costs")
-    }
 
 def gas_boiler_config(tech_inputs=None, input_data=None, **kwargs):
+    """Legacy gas boiler config - use build_gas_boiler_config instead."""
+    from .models import InputData
+    input_data_obj = InputData(**input_data) if input_data else InputData()
+    config = build_gas_boiler_config(tech_inputs, input_data_obj)
+    return config.__dict__
 
-    gb = tech_inputs.get("gas_boiler", {}) if tech_inputs else {}
-
-    return {
-        "type": "gas_boiler",
-        "fuel_bus": "gas_bus",
-        "heat_bus": "heat_bus",
-        "efficiency": gb.get("efficiency"),
-        "variable_costs": gb.get("variable_costs"),
-        "capacity": gb.get("capacity"),
-        "mode": gb.get("mode"),
-        "maximum": gb.get("maximum"),
-        "capex": gb.get("capex"),
-        "opex": gb.get("opex"),
-        "lifetime": gb.get("lifetime"),
-        "interest_rate": gb.get("interest_rate")
-
-    }
 
 def heat_pump_config(tech_inputs=None, input_data=None, **kwargs):
+    """Legacy heat pump config - use build_heat_pump_config instead."""
+    from .models import InputData
+    input_data_obj = InputData(**input_data) if input_data else InputData()
+    config = build_heat_pump_config(tech_inputs, input_data_obj)
+    return config.__dict__
 
-    hp = tech_inputs.get("heat_pump", {}) if tech_inputs else {}
 
-    return {
-        "type": "heat_pump",
-        "electricity_bus": "electricity_bus",
-        "heat_bus": "heat_bus",
-
-        # COP handling
-        "cop_mode": hp.get("cop_mode"),
-        "cop_value": hp.get("cop_value"),
-
-        # timeseries handling
-        "cop_series": input_data.get("cop_series"),
-
-        # investment / sizing
-        "mode": hp.get("mode"),
-        "capacity": hp.get("capacity"),
-        "maximum": hp.get("maximum"),
-
-        # economics
-        "variable_costs": hp.get("variable_costs"),
-        "capex": hp.get("capex"),
-        "opex": hp.get("opex"),
-        "lifetime": hp.get("lifetime"),
-        "interest_rate": hp.get("interest_rate")
-    }
-
+# Legacy registry
 TECH_CONFIG_REGISTRY = {
     "demand": demand_config,
     "heat_demand": heat_demand_config,
