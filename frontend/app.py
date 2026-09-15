@@ -6,13 +6,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import streamlit as st
 from backend.scenario_runner import run_scenario
 from backend.postprocessing import process_results, compute_energy_sums, get_active_bus_labels, get_investment_capacities
-from backend.plotting import plot_energy_flows
+from backend.plotting import plot_energy_flows, plot_energy_flows_plotly, create_sankey
 from backend.config_builder import build_config
 from frontend.ui_inputs import build_ui
 from frontend.ui_styles import load_global_styles
 
 # ui styling
 load_global_styles()
+st.set_page_config(layout="wide")
 
 st.title("Energy System Web Tool (oemof)")
 
@@ -60,6 +61,7 @@ else:
             es, results, meta_results, fig = run_scenario(
                 config,
                 input_data,
+                selected_techs=selected_techs,
                 plot_graph=True
             )
 
@@ -105,13 +107,21 @@ else:
             if flows is None or flows.empty:
                 continue
 
-            energy_flows_plot = plot_energy_flows(
+            energy_flows_plot = plot_energy_flows_plotly(
                 flows=flows,
                 bus_name=bus
             )
 
             st.markdown(f"### {bus.capitalize()} Energy Flows")
-            st.pyplot(energy_flows_plot)
+            #st.pyplot(energy_flows_plot)
+            st.plotly_chart(energy_flows_plot, width='stretch', theme=None)
+
+
+            st.markdown(f"### {bus.capitalize()} Energy Flows Sankey Diagram")
+            energy_sums = compute_energy_sums(flows)
+
+            sankey_fig = create_sankey(energy_sums)
+            st.plotly_chart(sankey_fig, width='stretch')
 
         invest_capacities = get_investment_capacities(results)
 
