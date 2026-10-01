@@ -5,6 +5,7 @@ UI_REGISTRY = {
     # electricity demand
     "demand": {
         "label": "Electricity Demand",
+        "group": "Demand",
 
         "timeseries": {
             "key": "electricity_demand",
@@ -26,6 +27,7 @@ UI_REGISTRY = {
     # heating demand
     "heat_demand": {
         "label": "Heat Demand",
+        "group": "Demand",
 
         "timeseries": {
             "key": "heat_demand",
@@ -46,6 +48,7 @@ UI_REGISTRY = {
     # grid import
     "grid": {
         "label": "Electricity Grid",
+        "group": "Grid & fuel",
         "inputs": [
             {
                 "key": "variable_costs",
@@ -60,6 +63,7 @@ UI_REGISTRY = {
     # grid feed-in
     "grid_feedin": {
         "label": "Grid Feed-in",
+        "group": "Grid & fuel",
         "inputs": [
             {
                 "key": "feedin_tariff",
@@ -74,6 +78,7 @@ UI_REGISTRY = {
     # pv system
     "pv": {
         "label": "PV System",
+        "group": "Generation",
         "inputs": [
             *PARAMS_BLOCK
         ],
@@ -88,6 +93,7 @@ UI_REGISTRY = {
     # battery
     "battery": {
         "label": "Battery Storage",
+        "group": "Storage",
         "inputs": [
             *PARAMS_BLOCK,
 
@@ -115,6 +121,7 @@ UI_REGISTRY = {
     # heat storage
     "heat_storage": {
         "label": "Heat Storage",
+        "group": "Storage",
         "inputs": [
             *PARAMS_BLOCK,
 
@@ -143,6 +150,7 @@ UI_REGISTRY = {
     # gas import
         "gas_import": {
         "label": "Gas Import",
+        "group": "Grid & fuel",
         "inputs": [
             {
                 "key": "variable_costs",
@@ -156,6 +164,7 @@ UI_REGISTRY = {
     # gas boiler
     "gas_boiler": {
         "label": "Gas Boiler",
+        "group": "Conversion",
         "inputs": [
             *PARAMS_BLOCK,
             {
@@ -169,6 +178,7 @@ UI_REGISTRY = {
     # heat pump
     "heat_pump": {
         "label": "Heat Pump",
+        "group": "Conversion",
 
         "inputs": [
             {
@@ -202,3 +212,7 @@ UI_REGISTRY = {
             }
     }
 }
+
+
+# order of the groups in the component selection (sidebar)
+GROUP_ORDER = ["Demand", "Grid & fuel", "Generation", "Conversion", "Storage"]

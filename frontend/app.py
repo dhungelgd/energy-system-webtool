@@ -5,10 +5,12 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import streamlit as st
 from backend.scenario_runner import run_scenario
-from backend.postprocessing import process_results, compute_energy_sums, get_active_bus_labels, get_investment_capacities
-from backend.plotting import plot_energy_flows, plot_energy_flows_plotly, create_sankey
 from backend.config_builder import build_config
+from backend.results_summary import collect_results
+from backend.system_check import check_system
 from frontend.ui_inputs import build_ui
+from frontend.ui_checks import component_labels, render_findings
+from frontend.ui_results import render_results
 from frontend.ui_styles import load_global_styles
 
 # ui styling
@@ -18,44 +20,57 @@ st.set_page_config(layout="wide")
 st.title("Energy System Web Tool (oemof)")
 
 # session state
-if "ready_confirmed" not in st.session_state:
-    st.session_state.ready_confirmed = False
+if "run_output" not in st.session_state:
+    st.session_state.run_output = None      # results of the last run
+    st.session_state.run_signature = None   # inputs used for the last run
 
 # ui input block
 selected_techs, tech_inputs, input_data, solver_cfg = build_ui()
 
-# system check
+# fingerprint of the current inputs (used to detect outdated results)
+current_signature = repr((selected_techs, tech_inputs, input_data, solver_cfg))
+
+# system check (runs automatically on every change)
 st.markdown("---")
 st.subheader("System Check")
 
-if not st.session_state.ready_confirmed:
+findings = check_system(
+    selected_techs,
+    tech_inputs,
+    input_data,
+    labels=component_labels()
+)
 
-    confirm = st.radio(
-        "All components added?",
-        ["Not yet", "Yes, ready"],
-        index=0
-    )
+blocked = (not selected_techs) or any(f.level == "error" for f in findings)
 
-    if confirm == "Yes, ready":
-        st.session_state.ready_confirmed = True
-        st.rerun()
+if not selected_techs:
+
+    st.caption("Select components in the sidebar to start.")
 
 else:
 
-    st.success("System confirmed. Ready to optimize.")
+    render_findings(findings)
 
-    run = st.button("Run Optimization")
+    if not findings:
+        st.success("System check passed. Ready to optimize.")
+    elif blocked:
+        st.caption("Fix the errors above to enable the optimization.")
+    else:
+        st.info("The system check found warnings but no errors. You can run the optimization.")
 
-    # execution
-    if run:
+run = st.button("Run Optimization", disabled=blocked)
 
-        config = build_config(
-            selected_techs=selected_techs,
-            tech_inputs=tech_inputs,
-            input_data=input_data,
-            solver_cfg=solver_cfg
-        )
+# execution
+if run:
 
+    config = build_config(
+        selected_techs=selected_techs,
+        tech_inputs=tech_inputs,
+        input_data=input_data,
+        solver_cfg=solver_cfg
+    )
+
+    try:
         with st.spinner("Running optimization..."):
 
             es, results, meta_results, fig = run_scenario(
@@ -65,65 +80,34 @@ else:
                 plot_graph=True
             )
 
-            # graph
-            if fig is not None:
-                st.pyplot(fig)
+            # compute tables and figures once and keep them
+            st.session_state.run_output = collect_results(
+                results,
+                meta_results,
+                config,
+                selected_techs,
+                system_graph=fig
+            )
+            st.session_state.run_signature = current_signature
 
-        st.success("Optimization completed")
-
-        # results
-        st.subheader("Results Summary")
-
-        st.write(
-            f"Annual system cost: {meta_results['objective']:.2f} €"
+    except (ValueError, RuntimeError) as err:
+        # ValueError: input problems raised by the backend (e.g. missing capacity)
+        # RuntimeError: the solver found no optimal solution (infeasible / unbounded)
+        st.session_state.run_output = None
+        st.session_state.run_signature = None
+        st.error(f"The optimization could not be completed:\n\n{err}")
+        st.caption(
+            "Typical causes: a missing input (e.g. capacity in fixed mode), or a "
+            "system that cannot be balanced (e.g. surplus PV electricity without "
+            "a grid feed-in, or an investment option without a maximum capacity)."
         )
 
-        st.subheader("Energy System Results")
+    else:
+        st.success("Optimization completed")
 
-        active_buses = get_active_bus_labels(selected_techs, config)
-
-        for bus in active_buses:
-
-            flows = process_results(results, bus_name=bus)
-
-            if flows is None or flows.empty:
-                continue
-
-            st.markdown("---")
-            st.subheader(f"{bus.capitalize()} Results")
-
-            st.subheader("Flows")
-            st.dataframe(flows)
-
-            st.subheader("Energy Flow Summary")
-            st.write(compute_energy_sums(flows))
-
-        st.subheader("Visualization")
-
-        for bus in active_buses:
-
-            flows = process_results(results, bus_name=bus)
-
-            if flows is None or flows.empty:
-                continue
-
-            energy_flows_plot = plot_energy_flows_plotly(
-                flows=flows,
-                bus_name=bus
-            )
-
-            st.markdown(f"### {bus.capitalize()} Energy Flows")
-            #st.pyplot(energy_flows_plot)
-            st.plotly_chart(energy_flows_plot, width='stretch', theme=None)
-
-
-            st.markdown(f"### {bus.capitalize()} Energy Flows Sankey Diagram")
-            energy_sums = compute_energy_sums(flows)
-
-            sankey_fig = create_sankey(energy_sums)
-            st.plotly_chart(sankey_fig, width='stretch')
-
-        invest_capacities = get_investment_capacities(results)
-
-        st.subheader("Investment Results")
-        st.dataframe(invest_capacities)
+# results of the last successful run (stay visible when inputs change)
+if st.session_state.run_output is not None:
+    render_results(
+        st.session_state.run_output,
+        outdated=(st.session_state.run_signature != current_signature)
+    )

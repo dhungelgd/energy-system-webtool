@@ -3,16 +3,7 @@ import pandas as pd
 from backend.input_schema import SolverConfig
 from frontend.ui_registry import UI_REGISTRY
 from frontend.ui_defaults import TECH_DEFAULTS
-
-# component selector
-def select_components():
-
-    st.sidebar.header("System Components")
-
-    return st.sidebar.multiselect(
-        "Select components",
-        list(UI_REGISTRY.keys())
-    )
+from frontend.ui_selection import select_components
 
 # time configuration
 def time_input_block():
@@ -22,7 +13,7 @@ def time_input_block():
     days = st.sidebar.number_input("Periods (Number of days)", 1, 366, 365)
     freq_map = {"1h": 24,"15min": 96}
 
-    res_options = ["15min", "1h"]
+    res_options = ["1h"]
 
     resolution = st.sidebar.selectbox(
         "Resolution",
@@ -92,8 +83,6 @@ def render_timeseries(cfg, comp):
 def render_component(comp):
 
     schema = UI_REGISTRY[comp]
-
-    st.subheader(schema["label"])
 
     tech_inputs = {comp: {}}
     input_data = {}
@@ -198,7 +187,7 @@ def solver_block():
     return SolverConfig(
         name=st.sidebar.selectbox(
             "Solver",
-            ["cbc", "gurobi", "glpk"],
+            ["cbc"],
             key="solver_name"
         ),
 
@@ -222,10 +211,19 @@ def build_ui():
     timeindex = time_input_block()
     all_input_data["timeindex"] = timeindex
 
-    for component in selected_techs:
-        tech_inputs, input_data = render_component(component)
-        all_tech_inputs.update(tech_inputs)
-        all_input_data.update(input_data)
+    # one tab per selected component
+    if selected_techs:
+
+        tabs = st.tabs([UI_REGISTRY[c]["label"] for c in selected_techs])
+
+        for component, tab in zip(selected_techs, tabs):
+            with tab:
+                tech_inputs, input_data = render_component(component)
+                all_tech_inputs.update(tech_inputs)
+                all_input_data.update(input_data)
+
+    else:
+        st.info("Select the components of your energy system in the sidebar.")
 
     solver_cfg = solver_block()
 
