@@ -98,7 +98,7 @@ if run:
         st.error(f"The optimization could not be completed:\n\n{err}")
         st.caption(
             "Typical causes: a missing input (e.g. capacity in fixed mode), or a "
-            "system that cannot be balanced (e.g. surplus PV electricity without "
+            "system that cannot be balanced (e.g. surplus PV or wind electricity without "
             "a grid feed-in, or an investment option without a maximum capacity)."
         )
 
