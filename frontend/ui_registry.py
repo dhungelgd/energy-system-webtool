@@ -90,6 +90,21 @@ UI_REGISTRY = {
         }
     },
 
+    # wind turbine
+    "wind": {
+        "label": "Wind Turbine",
+        "group": "Generation",
+        "inputs": [
+            *PARAMS_BLOCK
+        ],
+
+        "timeseries": {
+            "key": "wind",
+            "upload_label": "Upload wind profile timeseries data",
+            "default_column": 4
+        }
+    },
+
     # battery
     "battery": {
         "label": "Battery Storage",
@@ -171,6 +186,39 @@ UI_REGISTRY = {
                 "key": "efficiency",
                 "type": "number",
                 "label": "Efficiency"
+            },
+        ]
+    },
+
+    # heating rod (electric heater)
+    "heating_rod": {
+        "label": "Heating Rod",
+        "group": "Conversion",
+        "inputs": [
+            *PARAMS_BLOCK,
+            {
+                "key": "efficiency",
+                "type": "number",
+                "label": "Efficiency (heat out / electricity in)"
+            },
+        ]
+    },
+
+    # CHP plant (combined heat and power, gas fired)
+    "chp": {
+        "label": "CHP Plant",
+        "group": "Conversion",
+        "inputs": [
+            *PARAMS_BLOCK,
+            {
+                "key": "efficiency_el",
+                "type": "number",
+                "label": "Electrical efficiency"
+            },
+            {
+                "key": "efficiency_th",
+                "type": "number",
+                "label": "Thermal efficiency"
             },
         ]
     },

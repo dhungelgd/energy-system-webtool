@@ -17,6 +17,10 @@ TEMPLATES = {
         "demand", "grid", "grid_feedin", "pv", "battery",
     ],
 
+    "PV + wind": [
+        "demand", "grid", "grid_feedin", "pv", "wind",
+    ],
+
     "Gas heating": [
         "heat_demand", "gas_import", "gas_boiler",
     ],
@@ -25,11 +29,19 @@ TEMPLATES = {
         "demand", "heat_demand", "grid", "grid_feedin", "pv", "heat_pump",
     ],
 
+    "Heat pump + heating rod": [
+        "demand", "heat_demand", "grid", "grid_feedin", "pv", "heat_pump", "heating_rod", "heat_storage",
+    ],
+
+    "CHP system": [
+        "demand", "heat_demand", "grid", "grid_feedin", "gas_import", "chp", "gas_boiler",
+    ],
+
     "Full system": [
         "demand", "heat_demand",
         "grid", "grid_feedin", "gas_import",
-        "pv",
-        "gas_boiler", "heat_pump",
+        "pv", "wind",
+        "gas_boiler", "heat_pump", "heating_rod", "chp",
         "battery", "heat_storage",
     ],
 }

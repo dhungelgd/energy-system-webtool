@@ -33,7 +33,7 @@ def render_results(output, outdated=False):
     # system graph
     if output["system_graph"] is not None:
         with tabs["System graph"]:
-            st.pyplot(output["system_graph"])
+            st.plotly_chart(output["system_graph"], width="stretch", key="system_graph")
 
     # one tab per bus
     for bus, data in buses.items():

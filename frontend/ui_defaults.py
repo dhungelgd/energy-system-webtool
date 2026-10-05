@@ -8,6 +8,15 @@ TECH_DEFAULTS = {
         "maximum": None
     },
 
+    "wind": {
+        "capacity": None,
+        "capex": 1600.0,
+        "opex": 3.0,
+        "lifetime": 20.0,
+        "interest_rate": 3.0,
+        "maximum": None
+    },
+
     "gas_boiler": {
         "capacity": None,
         "capex": 175.0,
@@ -47,6 +56,27 @@ TECH_DEFAULTS = {
 
     "grid_feedin": {
         "feedin_tariff": 0.08
+    },
+
+    "heating_rod": {
+        "capacity": None,
+        "capex": 100.0,
+        "opex": 1.0,
+        "lifetime": 20.0,
+        "interest_rate": 3.0,
+        "maximum": None,
+        "efficiency": 0.99
+    },
+
+    "chp": {
+        "capacity": None,
+        "capex": 1000.0,
+        "opex": 4.0,
+        "lifetime": 20.0,
+        "interest_rate": 3.0,
+        "maximum": None,
+        "efficiency_el": 0.35,
+        "efficiency_th": 0.50
     },
 
     "heat_pump": {

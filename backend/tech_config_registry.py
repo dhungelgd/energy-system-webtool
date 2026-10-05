@@ -63,6 +63,24 @@ def pv_config(tech_inputs=None, input_data=None, **kwargs):
     }
 
 
+def wind_config(tech_inputs=None, input_data=None, **kwargs):
+
+    wind = tech_inputs.get("wind", {}) if tech_inputs else {}
+
+    return {
+        "type": "wind",
+        "bus": "electricity_bus",
+        "mode": wind.get("mode"),
+        "capacity": wind.get("capacity"),
+        "maximum": wind.get("maximum"),
+        "profile_key": wind.get("profile_key", "wind"),
+        "capex": wind.get("capex"),
+        "opex": wind.get("opex"),
+        "lifetime": wind.get("lifetime"),
+        "interest_rate": wind.get("interest_rate"),
+    }
+
+
 def battery_config(tech_inputs=None, **kwargs):
 
     bat = tech_inputs.get("battery", {}) if tech_inputs else {}
@@ -160,15 +178,56 @@ def heat_pump_config(tech_inputs=None, input_data=None, **kwargs):
         "interest_rate": hp.get("interest_rate")
     }
 
+def heating_rod_config(tech_inputs=None, input_data=None, **kwargs):
+
+    hr = tech_inputs.get("heating_rod", {}) if tech_inputs else {}
+
+    return {
+        "type": "heating_rod",
+        "electricity_bus": "electricity_bus",
+        "heat_bus": "heat_bus",
+        "efficiency": hr.get("efficiency"),
+        "mode": hr.get("mode"),
+        "capacity": hr.get("capacity"),
+        "maximum": hr.get("maximum"),
+        "capex": hr.get("capex"),
+        "opex": hr.get("opex"),
+        "lifetime": hr.get("lifetime"),
+        "interest_rate": hr.get("interest_rate"),
+    }
+
+def chp_config(tech_inputs=None, input_data=None, **kwargs):
+
+    chp = tech_inputs.get("chp", {}) if tech_inputs else {}
+
+    return {
+        "type": "chp",
+        "fuel_bus": "gas_bus",
+        "electricity_bus": "electricity_bus",
+        "heat_bus": "heat_bus",
+        "efficiency_el": chp.get("efficiency_el"),
+        "efficiency_th": chp.get("efficiency_th"),
+        "mode": chp.get("mode"),
+        "capacity": chp.get("capacity"),
+        "maximum": chp.get("maximum"),
+        "capex": chp.get("capex"),
+        "opex": chp.get("opex"),
+        "lifetime": chp.get("lifetime"),
+        "interest_rate": chp.get("interest_rate"),
+    }
+
 TECH_CONFIG_REGISTRY = {
     "demand": demand_config,
     "heat_demand": heat_demand_config,
     "grid": grid_config,
     "grid_feedin": grid_feedin_config,
     "pv": pv_config,
+    "wind": wind_config,
     "battery": battery_config,
     "gas_import": gas_import_config,
     "gas_boiler": gas_boiler_config,
     "heat_pump": heat_pump_config,
+    "heating_rod": heating_rod_config,
+    "chp": chp_config,
     "heat_storage": heat_storage_config
 }

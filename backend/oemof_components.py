@@ -2,16 +2,16 @@ import pandas as pd
 from oemof import solph
 from oemof.tools import economics
 
+
 # function to calculate epc
 def calculate_epc(capex, opex, lifetime, interest_rate):
-
     epc_capex = economics.annuity(capex=capex, n=lifetime, wacc=interest_rate / 100)
     fixed_opex_per_year = opex * capex / 100
     return epc_capex + fixed_opex_per_year
 
+
 # create a function to distinguish dispatch or investment mode
 def get_investment(cfg):
-
     mode = cfg.get("mode", "fixed")
 
     if mode == "fixed":
@@ -45,8 +45,8 @@ def get_investment(cfg):
             f"Invalid mode '{mode}'. Allowed: 'fixed', 'invest'"
         )
 
-def add_demand(es, buses, cfg, input_data):
 
+def add_demand(es, buses, cfg, input_data):
     timeindex = es.timeindex
 
     profile_key = cfg.get("profile_key", "electricity_demand")
@@ -72,8 +72,8 @@ def add_demand(es, buses, cfg, input_data):
         )
     )
 
-def add_heat_demand(es, buses, cfg, input_data):
 
+def add_heat_demand(es, buses, cfg, input_data):
     timeindex = es.timeindex
 
     profile_key = cfg.get("profile_key", "heat_demand")
@@ -98,6 +98,7 @@ def add_heat_demand(es, buses, cfg, input_data):
             }
         )
     )
+
 
 def align_timeseries(series, timeindex, strict=True):
     series = pd.Series(series)
@@ -143,42 +144,58 @@ def add_grid_feedin(es, buses, cfg, input_data):
     es.add(feedin)
 
 
-# add pv
-def add_pv(es, buses, cfg, input_data):
-    # pv time series
-    profile_key = cfg.get("profile_key", "pv")
+# source with a fixed time profile: output = profile * installed capacity
+# (shared by pv and wind)
+def add_profile_source(es, buses, cfg, input_data, label, display_name, default_profile_key):
+    profile_key = cfg.get("profile_key", default_profile_key)
 
     if profile_key not in input_data:
         raise ValueError(
-            f"PV profile '{profile_key}' not found in input_data"
+            f"{display_name} profile '{profile_key}' not found in input_data"
         )
 
     timeindex = es.timeindex
 
-    pv_profile = pd.Series(input_data[profile_key])
+    profile = pd.Series(input_data[profile_key])
 
-    pv_series = pd.Series(
-        pv_profile.values,
-        index=timeindex[:len(pv_profile)]
+    series = pd.Series(
+        profile.values,
+        index=timeindex[:len(profile)]
     )
 
     nominal_capacity = get_investment(cfg)
 
-    pv = solph.components.Source(
-        label="pv",
+    source = solph.components.Source(
+        label=label,
         outputs={
             buses[cfg["bus"]]: solph.Flow(
-                fix=pv_series,
+                fix=series,
                 nominal_capacity=nominal_capacity
             )
         }
     )
 
-    es.add(pv)
+    es.add(source)
+
+
+# add pv
+def add_pv(es, buses, cfg, input_data):
+    add_profile_source(
+        es, buses, cfg, input_data,
+        label="pv", display_name="PV", default_profile_key="pv"
+    )
+
+
+# add wind turbine
+def add_wind(es, buses, cfg, input_data):
+    add_profile_source(
+        es, buses, cfg, input_data,
+        label="wind", display_name="Wind", default_profile_key="wind"
+    )
+
 
 # add gas import
 def add_gas_import(es, buses, cfg, input_data):
-
     es.add(
         solph.components.Source(
             label="gas_import",
@@ -190,9 +207,9 @@ def add_gas_import(es, buses, cfg, input_data):
         )
     )
 
+
 # add gas boiler
 def add_gas_boiler(es, buses, cfg, input_data):
-
     nominal_capacity = get_investment(cfg)
 
     boiler = solph.components.Converter(
@@ -212,9 +229,9 @@ def add_gas_boiler(es, buses, cfg, input_data):
 
     es.add(boiler)
 
+
 # add heat pump
 def add_heat_pump(es, buses, cfg, input_data):
-
     nominal_capacity = get_investment(cfg)
 
     # cop handling
@@ -250,15 +267,70 @@ def add_heat_pump(es, buses, cfg, input_data):
             )
         },
         conversion_factors={
-                    buses["electricity_bus"]: 1 / cop
-                }
-            )
+            buses["electricity_bus"]: 1 / cop
+        }
+    )
 
     es.add(heat_pump)
 
+
+# add heating rod (electric heater: electricity -> heat)
+# capacity = heat output in kW; efficiency = heat out / electricity in
+def add_heating_rod(es, buses, cfg, input_data):
+    nominal_capacity = get_investment(cfg)
+
+    efficiency = cfg.get("efficiency")
+    if efficiency is None or efficiency <= 0:
+        raise ValueError("[heating_rod] efficiency must be greater than 0.")
+
+    heating_rod = solph.components.Converter(
+        label="heating_rod",
+        inputs={buses[cfg["electricity_bus"]]: solph.Flow()},
+        outputs={
+            buses[cfg["heat_bus"]]: solph.Flow(
+                nominal_capacity=nominal_capacity
+            )
+        },
+        conversion_factors={buses[cfg["heat_bus"]]: efficiency}
+    )
+
+    es.add(heating_rod)
+
+
+# add CHP plant (combined heat and power: gas -> electricity + heat)
+# capacity = ELECTRICAL output in kW; heat output follows from the efficiencies:
+# heat = electricity * efficiency_th / efficiency_el
+def add_chp(es, buses, cfg, input_data):
+    nominal_capacity = get_investment(cfg)
+
+    eta_el = cfg.get("efficiency_el")
+    eta_th = cfg.get("efficiency_th")
+
+    if eta_el is None or eta_th is None or eta_el <= 0 or eta_th <= 0:
+        raise ValueError("[chp] electrical and thermal efficiency must be greater than 0.")
+    if eta_el + eta_th > 1:
+        raise ValueError("[chp] electrical + thermal efficiency cannot be greater than 1.")
+
+    chp = solph.components.Converter(
+        label="chp",
+        inputs={buses[cfg["fuel_bus"]]: solph.Flow()},
+        outputs={
+            buses[cfg["electricity_bus"]]: solph.Flow(
+                nominal_capacity=nominal_capacity
+            ),
+            buses[cfg["heat_bus"]]: solph.Flow()
+        },
+        conversion_factors={
+            buses[cfg["electricity_bus"]]: eta_el,
+            buses[cfg["heat_bus"]]: eta_th
+        }
+    )
+
+    es.add(chp)
+
+
 # add battery
 def add_battery(es, buses, cfg, input_data):
-
     battery = solph.components.GenericStorage(
         label="battery",
         inputs={buses[cfg["bus"]]: solph.Flow()},
@@ -270,10 +342,10 @@ def add_battery(es, buses, cfg, input_data):
     )
 
     es.add(battery)
-    
+
+
 # add heat storage
 def add_heat_storage(es, buses, cfg, input_data):
-
     heat_storage = solph.components.GenericStorage(
         label="heat_storage",
         inputs={buses[cfg["bus"]]: solph.Flow()},
@@ -286,6 +358,7 @@ def add_heat_storage(es, buses, cfg, input_data):
 
     es.add(heat_storage)
 
+
 # component registry
 TECH_MAPPING = {
     "demand": add_demand,
@@ -293,9 +366,12 @@ TECH_MAPPING = {
     "grid": add_grid_import,
     "grid_feedin": add_grid_feedin,
     "pv": add_pv,
+    "wind": add_wind,
     "gas_import": add_gas_import,
     "gas_boiler": add_gas_boiler,
     "heat_pump": add_heat_pump,
+    "heating_rod": add_heating_rod,
+    "chp": add_chp,
     "battery": add_battery,
     "heat_storage": add_heat_storage
 }

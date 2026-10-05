@@ -11,13 +11,28 @@ class Finding:
 
 
 # components that need a capacity (fixed mode) or cost data (invest mode)
-SIZED_COMPONENTS = ("pv", "battery", "heat_storage", "gas_boiler", "heat_pump")
+SIZED_COMPONENTS = (
+    "pv", "wind", "battery", "heat_storage",
+    "gas_boiler", "heat_pump", "heating_rod", "chp",
+)
+
+# efficiencies that must be entered (greater than 0)
+EFFICIENCY_LABELS = {
+    "efficiency": "efficiency",
+    "efficiency_el": "electrical efficiency",
+    "efficiency_th": "thermal efficiency",
+}
+EFFICIENCY_FIELDS = {
+    "heating_rod": ("efficiency",),
+    "chp": ("efficiency_el", "efficiency_th"),
+}
 
 # components that need an uploaded time series -> key in input_data
 REQUIRED_PROFILES = {
     "demand": "electricity_demand",
     "heat_demand": "heat_demand",
     "pv": "pv",
+    "wind": "wind",
 }
 
 INVEST_FIELDS = ("capex", "opex", "lifetime", "interest_rate")
@@ -60,10 +75,17 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
     warnings = []
 
     # what can actually supply energy in the selected system
-    electricity_source = bool(chosen & {"grid", "pv"})
+    renewables = [k for k in ("pv", "wind") if k in chosen]
+    # a CHP plant only runs when its gas is supplied and its heat can be used
+    chp_works = {"chp", "gas_import", "heat_demand"} <= chosen
+    electricity_source = "grid" in chosen or bool(renewables) or chp_works
     heat_pump_works = "heat_pump" in chosen and electricity_source
+    heating_rod_works = "heating_rod" in chosen and electricity_source
     boiler_works = "gas_boiler" in chosen and "gas_import" in chosen
-    heat_source = heat_pump_works or boiler_works
+    chp_heat_works = "chp" in chosen and "gas_import" in chosen
+    heat_source = (
+        heat_pump_works or heating_rod_works or boiler_works or chp_heat_works
+    )
 
     # structure: errors (the model cannot be solved)
     if not chosen & {"demand", "heat_demand"}:
@@ -76,7 +98,7 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
     if "demand" in chosen and not electricity_source:
         errors.append(Finding(
             "error",
-            f"{name('demand')} has no supply. Add a grid connection (or PV).",
+            f"{name('demand')} has no supply. Add a grid connection (or PV or wind).",
             fixes(("grid",)),
         ))
 
@@ -85,9 +107,14 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
         errors.append(Finding(
             "error",
             f"{name('heat_demand')} cannot be supplied. It needs a working heat source: "
-            f"a gas boiler together with a gas import, or a heat pump together with "
-            f"electricity from the grid or PV.",
-            fixes(("gas_boiler", "gas_import"), ("heat_pump", "grid")),
+            f"a gas boiler or CHP plant together with a gas import, or a heat pump "
+            f"or heating rod together with electricity from the grid or PV.",
+            fixes(
+                ("gas_boiler", "gas_import"),
+                ("chp", "gas_import"),
+                ("heat_pump", "grid"),
+                ("heating_rod", "grid"),
+            ),
         ))
 
     # prices: an obvious input mistake that makes the model unbounded
@@ -132,6 +159,28 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
                     f"{name('heat_pump')}: the constant COP must be greater than 0.",
                 ))
 
+    for key, fields in EFFICIENCY_FIELDS.items():
+        if key not in chosen:
+            continue
+        values = tech_inputs.get(key, {})
+        for field in fields:
+            value = values.get(field)
+            if value is None or value <= 0:
+                errors.append(Finding(
+                    "error",
+                    f"{name(key)}: the {EFFICIENCY_LABELS[field]} must be greater than 0.",
+                ))
+
+    if "chp" in chosen:
+        chp = tech_inputs.get("chp", {})
+        eta_el, eta_th = chp.get("efficiency_el"), chp.get("efficiency_th")
+        if eta_el and eta_th and eta_el + eta_th > 1:
+            errors.append(Finding(
+                "error",
+                f"{name('chp')}: electrical + thermal efficiency "
+                f"({eta_el + eta_th:g}) cannot be greater than 1.",
+            ))
+
     for key in SIZED_COMPONENTS:
         if key not in chosen or key not in tech_inputs:
             continue
@@ -157,33 +206,58 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
                 ))
 
     # structure: warnings (the model may still run)
-    if (
-        "pv" in chosen
-        and "grid" not in chosen
-        and chosen & {"demand", "heat_pump"}
-    ):
+    if renewables and "grid" not in chosen and chosen & {"demand", "heat_pump", "heating_rod"}:
+        names = " and ".join(name(k) for k in renewables)
         warnings.append(Finding(
             "warning",
-            f"{name('pv')} alone cannot cover demand at night. Without a grid "
+            f"{names} alone cannot cover demand at all times. Without a grid "
             f"connection (or enough storage) the model may be infeasible.",
             fixes(("grid",)),
         ))
 
-    pv_mode = tech_inputs.get("pv", {}).get("mode")
-    if "pv" in chosen and "grid_feedin" not in chosen and pv_mode in (None, "fixed"):
+    fixed_renewables = [
+        k for k in renewables
+        if tech_inputs.get(k, {}).get("mode") in (None, "fixed")
+    ]
+    if fixed_renewables and "grid_feedin" not in chosen:
+        names = " and ".join(name(k) for k in fixed_renewables)
         warnings.append(Finding(
             "warning",
-            f"Surplus electricity from {name('pv')} cannot be exported. With a fixed "
-            f"PV capacity the model can become infeasible when PV produces more than "
-            f"is used.",
+            f"Surplus electricity from {names} cannot be exported. With a fixed "
+            f"capacity the model can become infeasible when production is higher "
+            f"than what is used.",
             fixes(("grid_feedin",)),
         ))
 
-    if "grid_feedin" in chosen and "pv" not in chosen:
+    if "grid_feedin" in chosen and not (renewables or chp_works):
         warnings.append(Finding(
             "warning",
             f"{name('grid_feedin')} is selected, but nothing feeds electricity into it.",
-            fixes(("pv",)),
+            fixes(("pv",), ("wind",), ("chp", "gas_import")),
+        ))
+
+    # a CHP plant always produces heat and electricity together
+    other_heat = heat_pump_works or heating_rod_works or boiler_works
+    if "chp" in chosen and "gas_import" not in chosen and not heat_error:
+        warnings.append(Finding(
+            "warning",
+            f"{name('chp')} has no fuel supply and cannot run.",
+            fixes(("gas_import",)),
+        ))
+    if "chp" in chosen and "heat_demand" not in chosen:
+        warnings.append(Finding(
+            "warning",
+            f"{name('chp')} always produces heat as well. Without a heat demand "
+            f"the heat cannot be used and the plant will not run.",
+            fixes(("heat_demand",)),
+        ))
+    if chp_works and "grid_feedin" not in chosen and not other_heat:
+        warnings.append(Finding(
+            "warning",
+            f"{name('chp')} is the only heat source and its electricity cannot be "
+            f"exported. If heat demand is high compared to electricity demand "
+            f"the model can become infeasible.",
+            fixes(("grid_feedin",)),
         ))
 
     if "gas_boiler" in chosen and "gas_import" not in chosen and not heat_error:
@@ -193,29 +267,30 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
             fixes(("gas_import",)),
         ))
 
-    if "heat_pump" in chosen and not electricity_source and not heat_error:
-        warnings.append(Finding(
-            "warning",
-            f"{name('heat_pump')} needs electricity and cannot run.",
-            fixes(("grid",)),
-        ))
+    for key in ("heat_pump", "heating_rod"):
+        if key in chosen and not electricity_source and not heat_error:
+            warnings.append(Finding(
+                "warning",
+                f"{name(key)} needs electricity and cannot run.",
+                fixes(("grid",)),
+            ))
 
-    if "gas_import" in chosen and "gas_boiler" not in chosen:
+    if "gas_import" in chosen and not chosen & {"gas_boiler", "chp"}:
         warnings.append(Finding(
             "warning",
             f"{name('gas_import')} is selected, but no component uses gas.",
-            fixes(("gas_boiler",)),
+            fixes(("gas_boiler",), ("chp",)),
         ))
 
     if "battery" in chosen and not electricity_source:
         warnings.append(Finding(
             "warning",
-            f"{name('battery')} has nothing to charge from. Add a grid connection or PV.",
-            fixes(("grid",), ("pv",)),
+            f"{name('battery')} has nothing to charge from. Add a grid connection, PV or wind.",
+            fixes(("grid",), ("pv",), ("wind",)),
         ))
 
     if "heat_demand" not in chosen:
-        for key in ("gas_boiler", "heat_pump", "heat_storage"):
+        for key in ("gas_boiler", "heat_pump", "heating_rod", "heat_storage"):
             if key in chosen:
                 warnings.append(Finding(
                     "warning",
