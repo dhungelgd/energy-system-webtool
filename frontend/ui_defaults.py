@@ -51,6 +51,8 @@ TECH_DEFAULTS = {
     },
 
     "grid": {
+        "price_mode": "constant",
+        "price_unit": "€/kWh",
         "variable_costs": 0.3
     },
 

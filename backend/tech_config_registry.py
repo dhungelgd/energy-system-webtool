@@ -24,15 +24,21 @@ def heat_demand_config(tech_inputs=None, input_data=None, **kwargs):
         "profile_data": input_data.get("heat_demand")
     }
 
-def grid_config(tech_inputs=None, **kwargs):
+def grid_config(tech_inputs=None, input_data=None, **kwargs):
 
     tech_inputs = tech_inputs or {}
+    input_data = input_data or {}
     grid = tech_inputs.get("grid", {})
 
     return {
         "type": "grid",
         "bus": "electricity_bus",
-        "variable_costs": grid.get("variable_costs")
+        "variable_costs": grid.get("variable_costs"),
+
+        # electricity price: constant value or uploaded time series
+        "price_mode": grid.get("price_mode", "constant"),
+        "price_series": input_data.get("grid_price"),
+        "price_unit": grid.get("price_unit", "€/kWh"),
     }
 
 def grid_feedin_config(tech_inputs, input_data):

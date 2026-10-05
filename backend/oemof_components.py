@@ -1,6 +1,7 @@
 import pandas as pd
 from oemof import solph
 from oemof.tools import economics
+from backend.price_units import price_series_in_eur_per_kwh, DEFAULT_PRICE_UNIT
 
 
 # function to calculate epc
@@ -118,11 +119,34 @@ def align_timeseries(series, timeindex, strict=True):
 
 # grid import
 def add_grid_import(es, buses, cfg, input_data):
+    # electricity price: constant (EUR/kWh) or time series in the chosen unit
+    if cfg.get("price_mode", "constant") == "timeseries":
+
+        series = cfg.get("price_series")
+        if series is None:
+            raise ValueError("[grid] price mode is 'timeseries', but no price series was uploaded.")
+
+        prices = price_series_in_eur_per_kwh(series, cfg.get("price_unit", DEFAULT_PRICE_UNIT))
+
+        horizon = len(es.timeindex)
+        if len(prices) < horizon:
+            raise ValueError(
+                f"[grid] the price series has {len(prices)} values, but the model "
+                f"needs {horizon}. Upload a longer series or shorten the time range."
+            )
+        if any(p != p for p in prices):  # NaN check
+            raise ValueError("[grid] the price series contains empty values (NaN).")
+
+        variable_costs = prices[:horizon]
+
+    else:
+        variable_costs = cfg.get("variable_costs")
+
     grid = solph.components.Source(
         label="grid_import",
         outputs={
             buses[cfg["bus"]]: solph.Flow(
-                variable_costs=cfg.get("variable_costs")
+                variable_costs=variable_costs
             )
         }
     )

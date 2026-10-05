@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from backend.price_units import PRICE_UNIT_FACTORS, price_series_in_eur_per_kwh
+
 
 @dataclass
 class Finding:
@@ -117,20 +119,61 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
             ),
         ))
 
+    # electricity price: constant value or uploaded time series
+    grid = tech_inputs.get("grid", {})
+    price_is_series = "grid" in chosen and grid.get("price_mode") == "timeseries"
+    lowest_price = None          # lowest electricity price in EUR/kWh (for the feed-in check)
+    price_label = "electricity price"
+
+    if price_is_series:
+        series = input_data.get("grid_price")
+        horizon = len(input_data["timeindex"]) if input_data.get("timeindex") is not None else None
+
+        if series is None:
+            errors.append(Finding(
+                "error",
+                f"{name('grid')}: no price time series uploaded. Upload a CSV file "
+                f"or switch the electricity price to 'constant'.",
+            ))
+        elif grid.get("price_unit", "€/kWh") not in PRICE_UNIT_FACTORS:
+            errors.append(Finding(
+                "error",
+                f"{name('grid')}: unknown price unit '{grid.get('price_unit')}'.",
+            ))
+        else:
+            prices = price_series_in_eur_per_kwh(series, grid.get("price_unit", "€/kWh"))
+            if any(p != p for p in prices):
+                errors.append(Finding(
+                    "error",
+                    f"{name('grid')}: the price series contains empty values. "
+                    f"Please check the selected column.",
+                ))
+            elif horizon is not None and len(prices) < horizon:
+                errors.append(Finding(
+                    "error",
+                    f"{name('grid')}: the price series has {len(prices)} values, but the "
+                    f"selected time range needs {horizon}. Upload a longer series or "
+                    f"shorten the time range.",
+                ))
+            else:
+                lowest_price = min(prices)
+                price_label = f"lowest electricity price in the series"
+    else:
+        lowest_price = grid.get("variable_costs")
+
     # prices: an obvious input mistake that makes the model unbounded
-    grid_price = tech_inputs.get("grid", {}).get("variable_costs")
     tariff = tech_inputs.get("grid_feedin", {}).get("feedin_tariff")
     if (
         {"grid", "grid_feedin"} <= chosen
-        and grid_price is not None
+        and lowest_price is not None
         and tariff is not None
-        and tariff > grid_price
+        and tariff > lowest_price
     ):
         errors.append(Finding(
             "error",
-            f"The feed-in tariff ({tariff:g} €/kWh) is higher than the electricity "
-            f"price ({grid_price:g} €/kWh). The model could buy and sell electricity "
-            f"at the same time for unlimited profit and cannot be solved. "
+            f"The feed-in tariff ({tariff:g} €/kWh) is higher than the "
+            f"{price_label} ({lowest_price:g} €/kWh). The model could buy and sell "
+            f"electricity at the same time for unlimited profit and cannot be solved. "
             f"Please check the prices and their units.",
         ))
 

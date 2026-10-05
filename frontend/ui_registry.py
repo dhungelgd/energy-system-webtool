@@ -51,13 +51,36 @@ UI_REGISTRY = {
         "group": "Grid & fuel",
         "inputs": [
             {
+                "key": "price_mode",
+                "type": "selectbox",
+                "label": "Electricity price",
+                "options": ["constant", "timeseries"],
+                "control": True
+            },
+            {
                 "key": "variable_costs",
                 "label": "Electricity Price (€/kWh)",
                 "type": "number",
                 "default": 0.3,
-                "step": 0.01
+                "step": 0.01,
+                "visible_if": {"price_mode": "constant"}
+            },
+            {
+                "key": "price_unit",
+                "type": "selectbox",
+                "label": "Unit of the uploaded prices",
+                "options": ["€/kWh", "ct/kWh", "€/MWh"],
+                "visible_if": {"price_mode": "timeseries"}
             }
-        ]
+        ],
+
+        # only used when the price mode is "timeseries"
+        "timeseries": {
+            "key": "grid_price",
+            "upload_label": "Upload electricity price timeseries (CSV)",
+            "default_column": 1,
+            "active_if": {"price_mode": "timeseries"}
+        }
     },
 
     # grid feed-in
@@ -233,7 +256,8 @@ UI_REGISTRY = {
                 "key": "cop_mode",
                 "type": "selectbox",
                 "label": "COP mode",
-                "options": ["constant", "timeseries"]
+                "options": ["constant", "timeseries"],
+                "control": True
             },
 
             {
@@ -256,7 +280,8 @@ UI_REGISTRY = {
             "timeseries": {
                 "key": "cop_series",
                 "upload_label": "Upload COP timeseries data",
-                "default_column": 6
+                "default_column": 6,
+                "active_if": {"cop_mode": "timeseries"}
             }
     }
 }

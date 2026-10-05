@@ -13,7 +13,7 @@ def time_input_block():
     days = st.sidebar.number_input("Periods (Number of days)", 1, 366, 365)
     freq_map = {"1h": 24,"15min": 96}
 
-    res_options = ["1h"]
+    res_options = ["15min", "1h"]
 
     resolution = st.sidebar.selectbox(
         "Resolution",
@@ -89,35 +89,32 @@ def render_component(comp):
 
     defaults = TECH_DEFAULTS.get(comp, {})
 
-    # static control inputs
+    # control fields first (e.g. cop_mode, price_mode): they decide what else is shown
     for field in schema.get("inputs", []):
 
-        # render ONLY control fields first (e.g. cop_mode)
-        if field.get("key") == "cop_mode":
-            value = defaults.get("cop_mode", "constant")
+        if not field.get("control"):
+            continue
 
-            tech_inputs[comp]["cop_mode"] = st.selectbox(
-                field["label"],
-                field["options"],
-                index=field["options"].index(value)
-                if value in field["options"] else 0,
-                key=f"{comp}_cop_mode"
-            )
+        key = field["key"]
+        value = defaults.get(key, field["options"][0])
 
-    #timeseries data
+        tech_inputs[comp][key] = st.selectbox(
+            field["label"],
+            field["options"],
+            index=field["options"].index(value)
+            if value in field["options"] else 0,
+            key=f"{comp}_{key}"
+        )
+
+    # timeseries data (only when its condition is met, e.g. price_mode == "timeseries")
     ts_cfg = schema.get("timeseries")
 
     if ts_cfg:
 
-        use_timeseries = True
-
-        if comp == "heat_pump":
-            use_timeseries = (
-                    tech_inputs[comp].get(
-                        "cop_mode",
-                        defaults.get("cop_mode", "constant")
-                    ) == "timeseries"
-            )
+        use_timeseries = all(
+            tech_inputs[comp].get(key, defaults.get(key)) == expected
+            for key, expected in ts_cfg.get("active_if", {}).items()
+        )
 
         if use_timeseries:
 
@@ -126,17 +123,15 @@ def render_component(comp):
             if series is not None:
 
                 tech_inputs[comp][ts_cfg["key"]] = column
-                if comp == "heat_pump":
-                    input_data["cop_series"] = series
-                else:
-                    input_data[ts_cfg["key"]] = series
+                input_data[ts_cfg["key"]] = series
 
     # static inputs
     for field in schema.get("inputs", []):
 
         key = field["key"]
-        # skip COP mode
-        if key == "cop_mode":
+
+        # control fields were already rendered above
+        if field.get("control"):
             continue
 
         # visibility control
@@ -161,9 +156,13 @@ def render_component(comp):
         # selectbox
         elif ftype == "selectbox":
 
+            options = field.get("options", [])
+
             tech_inputs[comp][key] = st.selectbox(
                 label,
-                field.get("options", []),
+                options,
+                index=options.index(defaults[key])
+                if defaults.get(key) in options else 0,
                 key=f"{comp}_{key}"
             )
 
@@ -187,7 +186,7 @@ def solver_block():
     return SolverConfig(
         name=st.sidebar.selectbox(
             "Solver",
-            ["cbc"],
+            ["cbc", "gurobi", "glpk"],
             key="solver_name"
         ),
 
