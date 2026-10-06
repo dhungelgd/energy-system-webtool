@@ -13,7 +13,7 @@ def time_input_block():
     days = st.sidebar.number_input("Periods (Number of days)", 1, 366, 365)
     freq_map = {"1h": 24,"15min": 96}
 
-    res_options = ["15min", "1h"]
+    res_options = ["1h"]
 
     resolution = st.sidebar.selectbox(
         "Resolution",
@@ -47,19 +47,52 @@ def field_is_visible(field, current_values):
 
     return True
 
+# shared upload: one CSV with all time series, uploaded once
+def shared_upload_block():
+
+    st.sidebar.header("Time Series Data")
+
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload one CSV with all time series",
+        type=["csv"],
+        key="shared_ts_csv"
+    )
+
+    if uploaded_file is not None:
+        st.session_state["shared_ts_df"] = pd.read_csv(uploaded_file)
+    else:
+        st.session_state.pop("shared_ts_df", None)
+
+    df = st.session_state.get("shared_ts_df")
+
+    if df is not None:
+        st.sidebar.caption(f"{len(df)} rows, {len(df.columns)} columns")
+
+
 # generic timeseries handler
 def render_timeseries(cfg, comp):
 
-    uploaded_file = st.file_uploader(
-        cfg.get("upload_label", f"Upload {comp} timeseries data"),
-        type=["csv"],
-        key=f"{comp}_csv"
-    )
+    shared_df = st.session_state.get("shared_ts_df")
+
+    # optional: a separate file for this component only
+    with st.expander(
+        "Use a separate file for this component",
+        expanded=shared_df is None
+    ):
+        uploaded_file = st.file_uploader(
+            cfg.get("upload_label", f"Upload {comp} timeseries data"),
+            type=["csv"],
+            key=f"{comp}_csv"
+        )
 
     if uploaded_file is not None:
         st.session_state[f"{comp}_df"] = pd.read_csv(uploaded_file)
 
+    # own file first, otherwise the shared file
     df = st.session_state.get(f"{comp}_df")
+
+    if df is None:
+        df = shared_df
 
     if df is None:
         return None, None
@@ -73,7 +106,8 @@ def render_timeseries(cfg, comp):
         f"Select {comp} column",
         df.columns,
         index=default_col,
-        key=f"{comp}_col"
+        # new key when the columns change, so the preselection is recalculated
+        key=f"{comp}_col_{abs(hash(tuple(df.columns)))}"
     )
     st.write(df.head())
 
@@ -186,7 +220,7 @@ def solver_block():
     return SolverConfig(
         name=st.sidebar.selectbox(
             "Solver",
-            ["cbc", "gurobi", "glpk"],
+            ["cbc"],
             key="solver_name"
         ),
 
@@ -209,6 +243,9 @@ def build_ui():
     # time definition
     timeindex = time_input_block()
     all_input_data["timeindex"] = timeindex
+
+    # one CSV with all time series (optional)
+    shared_upload_block()
 
     # one tab per selected component
     if selected_techs:
