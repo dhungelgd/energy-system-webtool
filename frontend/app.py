@@ -12,12 +12,16 @@ from frontend.ui_inputs import build_ui
 from frontend.ui_checks import component_labels, render_findings
 from frontend.ui_results import render_results
 from frontend.ui_styles import load_global_styles
+from frontend.ui_admin import render_admin_panel
 
 # ui styling
 load_global_styles()
 st.set_page_config(layout="wide")
 
 st.title("Energy System Web Tool (oemof)")
+
+# live user counter (visible only with ?admin=1 in the link)
+render_admin_panel()
 
 # session state
 if "run_output" not in st.session_state:
