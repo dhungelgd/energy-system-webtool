@@ -6,28 +6,24 @@ from frontend.ui_defaults import TECH_DEFAULTS
 from frontend.ui_selection import select_components
 
 # time configuration
+# the model always covers exactly one year (365 days) in hourly resolution
+DAYS_PER_YEAR = 365
+RESOLUTION = "1h"
+STEPS_PER_YEAR = DAYS_PER_YEAR * 24
+
 def time_input_block():
 
     st.sidebar.header("Time Settings")
     start_date = st.sidebar.date_input("Start date", pd.to_datetime("2021-01-01"))
-    days = st.sidebar.number_input("Periods (Number of days)", 1, 366, 365)
-    freq_map = {"1h": 24,"15min": 96}
-
-    res_options = ["1h"]
-
-    resolution = st.sidebar.selectbox(
-        "Resolution",
-        res_options,
-        index=res_options.index("1h"),
-        key="resolution"
+    st.sidebar.caption(
+        f"Simulated period: {DAYS_PER_YEAR} days, hourly resolution "
+        f"({STEPS_PER_YEAR} time steps per time series)"
     )
-
-    periods = days * freq_map[resolution]
 
     timeindex = pd.date_range(
         start=start_date,
-        periods=periods,
-        freq=resolution,
+        periods=STEPS_PER_YEAR,
+        freq=RESOLUTION,
     )
 
     return timeindex
@@ -212,18 +208,14 @@ def render_component(comp):
     return tech_inputs, input_data
 
 
-# solver block
+# solver block (CBC is the only solver offered)
 def solver_block():
 
     st.sidebar.header("Solver")
+    st.sidebar.caption("Solver: CBC")
 
     return SolverConfig(
-        name=st.sidebar.selectbox(
-            "Solver",
-            ["cbc"],
-            key="solver_name"
-        ),
-
+        name="cbc",
         tee=st.sidebar.checkbox(
             "Show solver output",
             value=False,
