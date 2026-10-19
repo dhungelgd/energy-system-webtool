@@ -56,10 +56,7 @@ def add_demand(es, buses, cfg, input_data):
     if profile_data is None:
         raise ValueError(f"Missing demand profile: {profile_key}")
 
-    demand_series = pd.Series(
-        profile_data,
-        index=timeindex[:len(profile_data)]
-    )
+    demand_series = align_timeseries(profile_data, timeindex, profile_key)
 
     es.add(
         solph.components.Sink(
@@ -83,10 +80,7 @@ def add_heat_demand(es, buses, cfg, input_data):
     if profile_data is None:
         raise ValueError(f"Missing demand profile: {profile_key}")
 
-    heat_series = pd.Series(
-        profile_data,
-        index=timeindex[:len(profile_data)]
-    )
+    heat_series = align_timeseries(profile_data, timeindex, profile_key)
 
     es.add(
         solph.components.Sink(
@@ -101,20 +95,31 @@ def add_heat_demand(es, buses, cfg, input_data):
     )
 
 
-def align_timeseries(series, timeindex, strict=True):
-    series = pd.Series(series)
+def align_timeseries(values, timeindex, name="time series"):
+    """Turn a list of values into a pandas Series on the model's time index.
 
-    if len(series) != len(timeindex):
+    - non-numeric or empty (NaN) values raise a ValueError
+    - a series shorter than the time index raises a ValueError
+    - a longer series is cut to the length of the time index
+    """
 
-        if strict:
-            raise ValueError(
-                f"Time series length {len(series)} != model horizon {len(timeindex)}"
-            )
+    try:
+        numeric = pd.Series(values, dtype=float)
+    except (TypeError, ValueError):
+        raise ValueError(f"[{name}] the time series contains non-numeric values.")
 
-        aligned = series.reindex(timeindex)
-        aligned = aligned.interpolate(limit_direction="both").fillna(0)
+    if numeric.isna().any():
+        raise ValueError(f"[{name}] the time series contains empty values (NaN).")
 
-        return aligned
+    n_steps = len(timeindex)
+
+    if len(numeric) < n_steps:
+        raise ValueError(
+            f"[{name}] the time series has {len(numeric)} values, but the model "
+            f"needs {n_steps}. Upload a longer series or shorten the time range."
+        )
+
+    return pd.Series(numeric.values[:n_steps], index=timeindex)
 
 
 # grid import
@@ -127,17 +132,7 @@ def add_grid_import(es, buses, cfg, input_data):
             raise ValueError("[grid] price mode is 'timeseries', but no price series was uploaded.")
 
         prices = price_series_in_eur_per_kwh(series, cfg.get("price_unit", DEFAULT_PRICE_UNIT))
-
-        horizon = len(es.timeindex)
-        if len(prices) < horizon:
-            raise ValueError(
-                f"[grid] the price series has {len(prices)} values, but the model "
-                f"needs {horizon}. Upload a longer series or shorten the time range."
-            )
-        if any(p != p for p in prices):  # NaN check
-            raise ValueError("[grid] the price series contains empty values (NaN).")
-
-        variable_costs = prices[:horizon]
+        variable_costs = align_timeseries(prices, es.timeindex, "grid price")
 
     else:
         variable_costs = cfg.get("variable_costs")
@@ -178,14 +173,7 @@ def add_profile_source(es, buses, cfg, input_data, label, display_name, default_
             f"{display_name} profile '{profile_key}' not found in input_data"
         )
 
-    timeindex = es.timeindex
-
-    profile = pd.Series(input_data[profile_key])
-
-    series = pd.Series(
-        profile.values,
-        index=timeindex[:len(profile)]
-    )
+    series = align_timeseries(input_data[profile_key], es.timeindex, display_name)
 
     nominal_capacity = get_investment(cfg)
 
@@ -270,12 +258,10 @@ def add_heat_pump(es, buses, cfg, input_data):
         if profile is None:
             raise ValueError("Missing COP time series in config")
 
-        timeindex = es.timeindex
+        cop = align_timeseries(profile, es.timeindex, "heat_pump COP")
 
-        cop = pd.Series(
-            profile,
-            index=timeindex[:len(profile)]
-        )
+        if (cop <= 0).any():
+            raise ValueError("[heat_pump] the COP time series must be greater than 0.")
 
     else:
         raise ValueError(f"Invalid COP mode: {cop_mode}")
