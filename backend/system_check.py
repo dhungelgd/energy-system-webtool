@@ -40,6 +40,18 @@ REQUIRED_PROFILES = {
 INVEST_FIELDS = ("capex", "opex", "lifetime", "interest_rate")
 
 
+def _has_invalid_values(values):
+    """True if a series contains empty (NaN) or non-numeric values."""
+
+    for v in values:
+        try:
+            if float(v) != float(v):   # NaN
+                return True
+        except (TypeError, ValueError):
+            return True
+    return False
+
+
 def check_system(selected, tech_inputs=None, input_data=None, labels=None):
     """Check a system definition before the optimization is started.
 
@@ -201,6 +213,41 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
                     "error",
                     f"{name('heat_pump')}: the constant COP must be greater than 0.",
                 ))
+
+    # time series: complete values, and long enough for the selected time range
+    n_steps = len(input_data["timeindex"]) if input_data.get("timeindex") is not None else None
+
+    series_to_check = [
+        (key, profile) for key, profile in REQUIRED_PROFILES.items() if key in chosen
+    ]
+    if "heat_pump" in chosen and heat_pump.get("cop_mode") == "timeseries":
+        series_to_check.append(("heat_pump", "cop_series"))
+
+    for key, profile in series_to_check:
+        values = input_data.get(profile)
+        if values is None:
+            continue    # a missing upload is already reported above
+
+        if _has_invalid_values(values):
+            errors.append(Finding(
+                "error",
+                f"{name(key)}: the selected time series contains empty or "
+                f"non-numeric values. Please check the selected column.",
+            ))
+        elif n_steps is not None and len(values) < n_steps:
+            errors.append(Finding(
+                "error",
+                f"{name(key)}: the time series has {len(values)} values, but the "
+                f"selected time range needs {n_steps}. Upload a longer series or "
+                f"shorten the time range.",
+            ))
+        elif n_steps is not None and len(values) > n_steps:
+            warnings.append(Finding(
+                "warning",
+                f"{name(key)}: the time series has {len(values)} values, but the "
+                f"selected time range needs {n_steps}. Only the first {n_steps} "
+                f"values will be used.",
+            ))
 
     for key, fields in EFFICIENCY_FIELDS.items():
         if key not in chosen:
