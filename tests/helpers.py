@@ -14,14 +14,9 @@ needs_cbc = pytest.mark.skipif(
     shutil.which("cbc") is None, reason="CBC solver is not installed"
 )
 
-
-# oemof treats N timestamps as N-1 time steps, so the model currently simulates
-# one hour less than the user asks for. Tests whose expected value assumes the
-# full period are marked with this. After the fix (Change 6) they pass, and
-# because the marker is strict, pytest then asks to remove it.
-known_time_step_bug = pytest.mark.xfail(
-    strict=True,
-    reason="model simulates N-1 hours for N timestamps (fix planned in Change 6)",
+# the model tests need the CBC solver (apt: coinor-cbc)
+needs_cbc = pytest.mark.skipif(
+    shutil.which("cbc") is None, reason="CBC solver is not installed"
 )
 
 

@@ -7,7 +7,7 @@ def build_model(config, input_data):
     timeindex = input_data["timeindex"]
 
     # initialize the energy system
-    es = EnergySystem(timeindex=timeindex)
+    es = EnergySystem(timeindex=timeindex, infer_last_interval=True)
 
     # create bus
     bus_map = {}

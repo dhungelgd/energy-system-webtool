@@ -48,7 +48,7 @@ def get_investment(cfg):
 
 
 def add_demand(es, buses, cfg, input_data):
-    timeindex = es.timeindex
+    timeindex = input_data["timeindex"]
 
     profile_key = cfg.get("profile_key", "electricity_demand")
     profile_data = input_data.get(profile_key)
@@ -72,7 +72,7 @@ def add_demand(es, buses, cfg, input_data):
 
 
 def add_heat_demand(es, buses, cfg, input_data):
-    timeindex = es.timeindex
+    timeindex = input_data["timeindex"]
 
     profile_key = cfg.get("profile_key", "heat_demand")
     profile_data = input_data.get(profile_key)
@@ -132,7 +132,7 @@ def add_grid_import(es, buses, cfg, input_data):
             raise ValueError("[grid] price mode is 'timeseries', but no price series was uploaded.")
 
         prices = price_series_in_eur_per_kwh(series, cfg.get("price_unit", DEFAULT_PRICE_UNIT))
-        variable_costs = align_timeseries(prices, es.timeindex, "grid price")
+        variable_costs = align_timeseries(prices, input_data["timeindex"], "grid price")
 
     else:
         variable_costs = cfg.get("variable_costs")
@@ -173,7 +173,7 @@ def add_profile_source(es, buses, cfg, input_data, label, display_name, default_
             f"{display_name} profile '{profile_key}' not found in input_data"
         )
 
-    series = align_timeseries(input_data[profile_key], es.timeindex, display_name)
+    series = align_timeseries(input_data[profile_key], input_data["timeindex"], display_name)
 
     nominal_capacity = get_investment(cfg)
 
@@ -258,7 +258,7 @@ def add_heat_pump(es, buses, cfg, input_data):
         if profile is None:
             raise ValueError("Missing COP time series in config")
 
-        cop = align_timeseries(profile, es.timeindex, "heat_pump COP")
+        cop = align_timeseries(profile, input_data["timeindex"], "heat_pump COP")
 
         if (cop <= 0).any():
             raise ValueError("[heat_pump] the COP time series must be greater than 0.")
@@ -338,6 +338,7 @@ def add_chp(es, buses, cfg, input_data):
 
     es.add(chp)
 
+
 def add_storage(es, buses, cfg, label):
     """Storage with limited charge and discharge power.
 
@@ -390,6 +391,7 @@ def add_battery(es, buses, cfg, input_data):
 # add heat storage
 def add_heat_storage(es, buses, cfg, input_data):
     add_storage(es, buses, cfg, "heat_storage")
+
 
 # component registry
 TECH_MAPPING = {

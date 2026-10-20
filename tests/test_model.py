@@ -7,8 +7,11 @@ All tests use a 24 hour system with a constant electricity demand of 10 kW
 import pytest
 from oemof.solph import views
 
+from backend.config_builder import build_config
+from backend.input_schema import SolverConfig
+from backend.model_builder import build_model
 from backend.postprocessing import get_investment_capacities
-from tests.helpers import known_time_step_bug, needs_cbc, solve, timeindex
+from tests.helpers import needs_cbc, solve, timeindex
 
 pytestmark = needs_cbc
 
@@ -36,7 +39,22 @@ def battery_power(results):
     return charge, discharge
 
 
-@known_time_step_bug
+def test_every_hour_of_the_time_index_is_simulated():
+    # oemof reads N timestamps as N-1 steps unless the last interval is inferred
+    tech = {
+        "demand": {"scaling_factor": 10},
+        "grid": {"price_mode": "constant", "variable_costs": 0.30},
+    }
+    data = base_data()
+    config = build_config(
+        ["demand", "grid"], tech, data, SolverConfig(name="cbc")
+    )
+    es = build_model(config, data)
+
+    assert len(es.timeincrement) == HOURS
+    assert es.timeincrement.sum() == HOURS
+
+
 def test_grid_only_cost_is_energy_times_price():
     tech = {
         "demand": {"scaling_factor": 10},
@@ -48,7 +66,6 @@ def test_grid_only_cost_is_energy_times_price():
     assert meta["objective"] == pytest.approx(72.0)
 
 
-@known_time_step_bug
 def test_price_series_in_ct_per_kwh_is_converted():
     tech = {
         "demand": {"scaling_factor": 10},
@@ -102,7 +119,6 @@ def test_battery_power_is_limited_by_the_c_rate():
     assert discharge == pytest.approx(5.0)
 
 
-@known_time_step_bug
 def test_c_rate_limited_battery_saves_the_expected_amount():
     # Charging 5 kW for 12 cheap hours stores 60 kWh; discharging it in the
     # expensive hours saves 60 * (0.50 - 0.10) = 24 EUR.
@@ -113,7 +129,6 @@ def test_c_rate_limited_battery_saves_the_expected_amount():
     assert meta["objective"] == pytest.approx(48.0)
 
 
-@known_time_step_bug
 def test_higher_c_rate_allows_more_shifting():
     # with 10 kW the full 100 kWh can be shifted: 72 - 100*0.50 + 100*0.10 = 32 EUR
     tech = storage_tech(mode="fixed", capacity=100, c_rate=0.10)
