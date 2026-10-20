@@ -153,6 +153,13 @@ UI_REGISTRY = {
                 "label": "Self-discharge rate (/h)",
                 "default": 0.001
             },
+            {
+                "key": "c_rate",
+                "type": "number",
+                "label": "Charge/discharge rate (kW per kWh)",
+                "default": 0.5,
+                "step": 0.05
+            },
         ]
     },
 
@@ -180,6 +187,13 @@ UI_REGISTRY = {
                 "type": "number",
                 "label": "Self-discharge rate (/h)",
                 "default": 0.001
+            },
+            {
+                "key": "c_rate",
+                "type": "number",
+                "label": "Charge/discharge rate (kW per kWh)",
+                "default": 0.25,
+                "step": 0.05
             },
         ]
     },

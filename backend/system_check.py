@@ -261,6 +261,16 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
                     f"{name(key)}: the {EFFICIENCY_LABELS[field]} must be greater than 0.",
                 ))
 
+    for key in ("battery", "heat_storage"):
+        if key not in chosen:
+            continue
+        c_rate = tech_inputs.get(key, {}).get("c_rate")
+        if c_rate is None or c_rate <= 0:
+            errors.append(Finding(
+                "error",
+                f"{name(key)}: the charge/discharge rate (C-rate) must be greater than 0.",
+            ))
+
     if "chp" in chosen:
         chp = tech_inputs.get("chp", {})
         eta_el, eta_th = chp.get("efficiency_el"), chp.get("efficiency_th")

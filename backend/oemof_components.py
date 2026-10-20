@@ -338,36 +338,58 @@ def add_chp(es, buses, cfg, input_data):
 
     es.add(chp)
 
+def add_storage(es, buses, cfg, label):
+    """Storage with limited charge and discharge power.
+
+    The power is set by the C-rate (kW of power per kWh of capacity).
+    With a C-rate of 0.5, a 10 kWh storage can be charged or discharged
+    with at most 5 kW.
+    """
+
+    c_rate = cfg.get("c_rate")
+
+    if c_rate is None or c_rate <= 0:
+        raise ValueError(f"[{label}] the C-rate must be greater than 0.")
+
+    capacity = get_investment(cfg)
+    bus = buses[cfg["bus"]]
+
+    if isinstance(capacity, solph.Investment):
+        # invest mode: the power is linked to the invested capacity
+        flow_in = solph.Flow(nominal_capacity=solph.Investment(ep_costs=0))
+        flow_out = solph.Flow(nominal_capacity=solph.Investment(ep_costs=0))
+        relations = {
+            "invest_relation_input_capacity": c_rate,
+            "invest_relation_output_capacity": c_rate,
+        }
+    else:
+        # fixed mode: the power follows directly from the capacity
+        flow_in = solph.Flow(nominal_capacity=capacity * c_rate)
+        flow_out = solph.Flow(nominal_capacity=capacity * c_rate)
+        relations = {}
+
+    es.add(
+        solph.components.GenericStorage(
+            label=label,
+            inputs={bus: flow_in},
+            outputs={bus: flow_out},
+            nominal_capacity=capacity,
+            loss_rate=cfg.get("loss_rate"),
+            inflow_conversion_factor=cfg.get("efficiency_charge"),
+            outflow_conversion_factor=cfg.get("efficiency_discharge"),
+            **relations,
+        )
+    )
+
 
 # add battery
 def add_battery(es, buses, cfg, input_data):
-    battery = solph.components.GenericStorage(
-        label="battery",
-        inputs={buses[cfg["bus"]]: solph.Flow()},
-        outputs={buses[cfg["bus"]]: solph.Flow()},
-        nominal_capacity=get_investment(cfg),
-        loss_rate=cfg.get("loss_rate"),
-        inflow_conversion_factor=cfg.get("efficiency_charge"),
-        outflow_conversion_factor=cfg.get("efficiency_discharge")
-    )
-
-    es.add(battery)
+    add_storage(es, buses, cfg, "battery")
 
 
 # add heat storage
 def add_heat_storage(es, buses, cfg, input_data):
-    heat_storage = solph.components.GenericStorage(
-        label="heat_storage",
-        inputs={buses[cfg["bus"]]: solph.Flow()},
-        outputs={buses[cfg["bus"]]: solph.Flow()},
-        nominal_capacity=get_investment(cfg),
-        loss_rate=cfg.get("loss_rate"),
-        inflow_conversion_factor=cfg.get("efficiency_charge"),
-        outflow_conversion_factor=cfg.get("efficiency_discharge")
-    )
-
-    es.add(heat_storage)
-
+    add_storage(es, buses, cfg, "heat_storage")
 
 # component registry
 TECH_MAPPING = {

@@ -1,4 +1,5 @@
 from oemof.solph import views
+from oemof.solph.components import GenericStorage
 import pandas as pd
 
 # Extract flows from a bus
@@ -94,6 +95,11 @@ def get_investment_capacities(results):
     for (comp, bus), data in results.items():
 
         if not hasattr(comp, "label"):
+            continue
+
+        # the power flows of a storage are linked to its capacity (C-rate);
+        # only the storage capacity itself is reported
+        if isinstance(comp, GenericStorage) and bus is not None:
             continue
 
         tech = comp.label
