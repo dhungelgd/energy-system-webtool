@@ -1,27 +1,23 @@
 def demand_config(tech_inputs=None, input_data=None, **kwargs):
 
     tech_inputs = tech_inputs or {}
-    input_data = input_data or {}
     demand = tech_inputs.get("demand", {})
 
     return {
         "type": "demand",
         "bus": "electricity_bus",
-        "scaling_factor": demand.get("scaling_factor"),
-        "profile_data": input_data.get("electricity_demand")
+        "scaling_factor": demand.get("scaling_factor")
     }
 
 def heat_demand_config(tech_inputs=None, input_data=None, **kwargs):
 
     tech_inputs = tech_inputs or {}
-    input_data = input_data or {}
     heat_demand = tech_inputs.get("heat_demand", {})
 
     return {
         "type": "heat_demand",
         "bus": "heat_bus",
-        "scaling_factor": heat_demand.get("scaling_factor"),
-        "profile_data": input_data.get("heat_demand")
+        "scaling_factor": heat_demand.get("scaling_factor")
     }
 
 def grid_config(tech_inputs=None, input_data=None, **kwargs):
@@ -41,8 +37,9 @@ def grid_config(tech_inputs=None, input_data=None, **kwargs):
         "price_unit": grid.get("price_unit", "€/kWh"),
     }
 
-def grid_feedin_config(tech_inputs, input_data):
+def grid_feedin_config(tech_inputs=None, input_data=None, **kwargs):
 
+    tech_inputs = tech_inputs or {}
     grid_feedin = tech_inputs.get("grid_feedin", {})
 
     return {

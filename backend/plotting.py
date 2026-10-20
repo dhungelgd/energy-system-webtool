@@ -1,7 +1,4 @@
-from pathlib import Path
 import matplotlib.pyplot as plt
-import networkx as nx
-from oemof.network.graph import create_nx_graph
 import plotly.graph_objects as go
 import numpy as np
 

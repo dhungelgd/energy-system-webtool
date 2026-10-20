@@ -35,8 +35,7 @@ TECH_DEFAULTS = {
         "lifetime": 15.0,
         "interest_rate": 3.0,
         "maximum": None,
-        "loss_rate": 0.001,
-        "efficiency": 0.95
+        "loss_rate": 0.001
     },
 
     "heat_storage": {
@@ -46,8 +45,7 @@ TECH_DEFAULTS = {
         "lifetime": 15.0,
         "interest_rate": 3.0,
         "maximum": None,
-        "loss_rate": 0.01,
-        "efficiency": 0.95
+        "loss_rate": 0.01
     },
 
     "grid": {
