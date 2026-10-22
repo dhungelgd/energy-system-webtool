@@ -63,6 +63,7 @@ UI_REGISTRY = {
                 "type": "number",
                 "default": 0.3,
                 "step": 0.01,
+                "format": "%.4f",
                 "visible_if": {"price_mode": "constant"}
             },
             {
@@ -94,6 +95,7 @@ UI_REGISTRY = {
                 "type": "number",
                 "default": 0.078,
                 "step": 0.01,
+                "format": "%.4f"
             }
         ]
     },
@@ -151,7 +153,9 @@ UI_REGISTRY = {
                 "key": "loss_rate",
                 "type": "number",
                 "label": "Self-discharge rate (/h)",
-                "default": 0.001
+                "default": 0.001,
+                "step": 0.001,
+                "format": "%.4f"
             },
             {
                 "key": "c_rate",
@@ -186,7 +190,9 @@ UI_REGISTRY = {
                 "key": "loss_rate",
                 "type": "number",
                 "label": "Self-discharge rate (/h)",
-                "default": 0.001
+                "default": 0.001,
+                "step": 0.001,
+                "format": "%.4f"
             },
             {
                 "key": "c_rate",
@@ -200,7 +206,7 @@ UI_REGISTRY = {
 
 
     # gas import
-        "gas_import": {
+    "gas_import": {
         "label": "Gas Import",
         "group": "Grid & fuel",
         "inputs": [
@@ -208,7 +214,9 @@ UI_REGISTRY = {
                 "key": "variable_costs",
                 "type": "number",
                 "label": "Gas Price (€/kWh)",
-                "default": 0.10
+                "default": 0.10,
+                "step": 0.01,
+                "format": "%.4f"
             }
         ]
     },

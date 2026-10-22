@@ -49,3 +49,9 @@ def test_default_values_shown_to_the_user(full_system_app, key, expected):
 ])
 def test_units_in_the_labels(full_system_app, key, unit):
     assert unit in number_input(full_system_app, key).label
+
+@pytest.mark.parametrize("key", ["battery_loss_rate", "heat_storage_loss_rate"])
+def test_self_discharge_is_displayed_with_enough_decimals(full_system_app, key):
+    widget = number_input(full_system_app, key)
+
+    assert widget.proto.format % widget.value == "0.0010"

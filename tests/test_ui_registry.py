@@ -43,3 +43,29 @@ def test_storage_has_a_c_rate_input(component):
 
 def test_heat_storage_self_discharge_default():
     assert registry_fields("heat_storage")["loss_rate"]["default"] == 0.001
+
+def shown_default(component, field):
+    return TECH_DEFAULTS.get(component, {}).get(field["key"], field.get("default"))
+
+
+def test_number_inputs_show_their_default_exactly():
+    # st.number_input shows 2 decimals unless a format is given, so a default
+    # such as 0.001 would be displayed as 0.00.
+    too_coarse = []
+    for component, spec in UI_REGISTRY.items():
+        for field in spec.get("inputs", []):
+            value = shown_default(component, field)
+            if field["type"] != "number" or value in (None, 0, 0.0):
+                continue
+            fmt = field.get("format", "%0.2f")
+            if float(fmt % value) != pytest.approx(value, abs=1e-12):
+                too_coarse.append((component, field["key"], value, fmt))
+    assert too_coarse == []
+
+
+def test_price_inputs_have_enough_decimals():
+    for component, key in (("grid", "variable_costs"),
+                           ("grid_feedin", "feedin_tariff"),
+                           ("gas_import", "variable_costs")):
+        fmt = registry_fields(component)[key]["format"]
+        assert float(fmt % 0.2843) == pytest.approx(0.2843)

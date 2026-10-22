@@ -180,6 +180,7 @@ def render_component(comp):
                 label,
                 value=value,
                 step=field.get("step", 0.1),
+                format=field.get("format"),
                 key=f"{comp}_{key}"
             )
 
