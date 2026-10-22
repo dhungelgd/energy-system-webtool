@@ -1,6 +1,6 @@
 from oemof import solph
-from .model_builder import build_model
-from .plotting import plot_energy_system_graph
+from backend.model_builder import build_model
+from backend.plotting import plot_energy_system_graph
 
 def run_scenario(config: dict, input_data: dict, selected_techs=None, plot_graph: bool = False):
 

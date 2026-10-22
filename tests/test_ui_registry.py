@@ -44,6 +44,7 @@ def test_storage_has_a_c_rate_input(component):
 def test_heat_storage_self_discharge_default():
     assert registry_fields("heat_storage")["loss_rate"]["default"] == 0.001
 
+
 def shown_default(component, field):
     return TECH_DEFAULTS.get(component, {}).get(field["key"], field.get("default"))
 

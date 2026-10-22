@@ -1,4 +1,4 @@
-from ui_blocks import PARAMS_BLOCK, STORAGE_PARAMS_BLOCK
+from frontend.ui_blocks import PARAMS_BLOCK, STORAGE_PARAMS_BLOCK
 
 UI_REGISTRY = {
 
