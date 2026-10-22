@@ -144,7 +144,7 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
         if series is None:
             errors.append(Finding(
                 "error",
-                f"{name('grid')}: no price time series uploaded. Upload a CSV file "
+                f"{name('grid')}: no price time series uploaded. Upload a file "
                 f"or switch the electricity price to 'constant'.",
             ))
         elif grid.get("price_unit", "€/kWh") not in PRICE_UNIT_FACTORS:
@@ -194,7 +194,7 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
         if key in chosen and input_data.get(profile) is None:
             errors.append(Finding(
                 "error",
-                f"{name(key)}: no time series uploaded. Upload a CSV file in its tab.",
+                f"{name(key)}: no time series uploaded. Upload a file in its tab.",
             ))
 
     heat_pump = tech_inputs.get("heat_pump", {})
@@ -203,7 +203,7 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
             if input_data.get("cop_series") is None:
                 errors.append(Finding(
                     "error",
-                    f"{name('heat_pump')}: no COP time series uploaded. Upload a CSV "
+                    f"{name('heat_pump')}: no COP time series uploaded. Upload a "
                     f"file or switch the COP mode to 'constant'.",
                 ))
         else:

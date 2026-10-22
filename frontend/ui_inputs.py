@@ -4,6 +4,7 @@ from backend.input_schema import SolverConfig
 from frontend.ui_registry import UI_REGISTRY
 from frontend.ui_defaults import TECH_DEFAULTS
 from frontend.ui_selection import select_components
+from frontend.ui_upload import UPLOAD_TYPES, read_uploaded_table
 
 # time configuration
 # the model always covers exactly one year (365 days) in hourly resolution
@@ -43,26 +44,27 @@ def field_is_visible(field, current_values):
 
     return True
 
-# shared upload: one CSV with all time series, uploaded once
-def shared_upload_block():
 
+# shared upload: one file (CSV or Excel) with all time series, uploaded once
+def shared_upload_block():
     st.sidebar.header("Time Series Data")
 
     uploaded_file = st.sidebar.file_uploader(
-        "Upload one CSV with all time series",
-        type=["csv"],
+        "Upload one file (CSV or Excel) with all time series",
+        type=UPLOAD_TYPES,
         key="shared_ts_csv"
     )
 
-    if uploaded_file is not None:
-        st.session_state["shared_ts_df"] = pd.read_csv(uploaded_file)
-    else:
-        st.session_state.pop("shared_ts_df", None)
+    df = None
 
-    df = st.session_state.get("shared_ts_df")
+    if uploaded_file is not None:
+        with st.sidebar:
+            df = read_uploaded_table(uploaded_file, "shared")
 
     if df is not None:
-        st.sidebar.caption(f"{len(df)} rows, {len(df.columns)} columns")
+        st.session_state["shared_ts_df"] = df
+    else:
+        st.session_state.pop("shared_ts_df", None)
 
 
 # generic timeseries handler
@@ -77,12 +79,14 @@ def render_timeseries(cfg, comp):
     ):
         uploaded_file = st.file_uploader(
             cfg.get("upload_label", f"Upload {comp} timeseries data"),
-            type=["csv"],
+            type=UPLOAD_TYPES,
             key=f"{comp}_csv"
         )
 
     if uploaded_file is not None:
-        st.session_state[f"{comp}_df"] = pd.read_csv(uploaded_file)
+        st.session_state[f"{comp}_df"] = read_uploaded_table(uploaded_file, comp)
+    else:
+        st.session_state.pop(f"{comp}_df", None)
 
     # own file first, otherwise the shared file
     df = st.session_state.get(f"{comp}_df")
