@@ -1,4 +1,4 @@
-from ui_blocks import PARAMS_BLOCK
+from ui_blocks import PARAMS_BLOCK, STORAGE_PARAMS_BLOCK
 
 UI_REGISTRY = {
 
@@ -133,7 +133,7 @@ UI_REGISTRY = {
         "label": "Battery Storage",
         "group": "Storage",
         "inputs": [
-            *PARAMS_BLOCK,
+            *STORAGE_PARAMS_BLOCK,
 
             {
                 "key": "efficiency_charge",
@@ -168,7 +168,7 @@ UI_REGISTRY = {
         "label": "Heat Storage",
         "group": "Storage",
         "inputs": [
-            *PARAMS_BLOCK,
+            *STORAGE_PARAMS_BLOCK,
 
             {
                 "key": "efficiency_charge",

@@ -34,8 +34,7 @@ TECH_DEFAULTS = {
         "opex": 1.0,
         "lifetime": 15.0,
         "interest_rate": 3.0,
-        "maximum": None,
-        "loss_rate": 0.001
+        "maximum": None
     },
 
     "heat_storage": {
@@ -44,18 +43,12 @@ TECH_DEFAULTS = {
         "opex": 1.0,
         "lifetime": 15.0,
         "interest_rate": 3.0,
-        "maximum": None,
-        "loss_rate": 0.01
+        "maximum": None
     },
 
     "grid": {
         "price_mode": "constant",
-        "price_unit": "€/kWh",
-        "variable_costs": 0.3
-    },
-
-    "grid_feedin": {
-        "feedin_tariff": 0.08
+        "price_unit": "€/kWh"
     },
 
     "heating_rod": {
