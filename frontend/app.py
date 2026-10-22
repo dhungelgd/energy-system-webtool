@@ -1,9 +1,16 @@
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import importlib.util
 
 import streamlit as st
+
+# backend and frontend are installed with "pip install -e ."
+if importlib.util.find_spec("backend") is None:
+    st.error(
+        "The project is not installed in this Python environment. "
+        "Run `pip install -e . --no-deps` in the repository folder, "
+        "then start the app again."
+    )
+    st.stop()
+
 from backend.scenario_runner import run_scenario
 from backend.config_builder import build_config
 from backend.results_summary import collect_results
