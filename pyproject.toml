@@ -20,6 +20,7 @@ dependencies = [
     "plotly>=6",
     "openpyxl>=3.1",
     "streamlit>=1.51",
+    "pydantic>=2.7,<3"
 ]
 
 [project.optional-dependencies]
