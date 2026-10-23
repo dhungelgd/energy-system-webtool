@@ -1,0 +1,4 @@
+# for working on the NiceGUI interface; the Streamlit deployment does not need this
+-r requirements-dev.txt
+nicegui==3.18.0
+pytest-asyncio==1.4.0

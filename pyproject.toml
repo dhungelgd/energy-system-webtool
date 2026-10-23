@@ -24,7 +24,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+nicegui = ["nicegui>=3,<4"]
+dev = ["pytest", "pytest-asyncio"]
 
 [tool.setuptools.packages.find]
-include = ["backend*", "frontend*"]
+include = ["backend*", "frontend*", "frontend_nicegui*"]
