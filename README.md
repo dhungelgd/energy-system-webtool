@@ -37,15 +37,15 @@ You need Python 3.11 or newer and the CBC solver.
 # CBC solver (Ubuntu / Debian)
 sudo apt-get install coinor-cbc
 
-# Python packages and the project itself (run this in the repository folder)
+# Python packages (run this in the repository folder)
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` ends with `-e .`, which installs the `backend` and
-`frontend` packages of this repository, so they can be imported from anywhere.
-If you already have an environment with all packages, only add the project:
+To import the project from anywhere (other scripts, notebooks, the tests), also
+install it into the environment. This adds only a link to this folder and
+changes no other package:
 
 ```bash
 pip install -e . --no-deps
@@ -60,11 +60,18 @@ and make sure `cbc` is on your `PATH`.
 From the repository root:
 
 ```bash
-streamlit run frontend/app.py
+streamlit run streamlit_app.py
 ```
 
-If the page says that the project is not installed, run `pip install -e . --no-deps`
-in the repository folder (in the same environment that runs Streamlit).
+`streamlit_app.py` needs no installation of the project, because Streamlit puts
+its folder on the import path. This is also the file to use on Streamlit
+Community Cloud.
+
+Add `?admin=1` to the address to see the live session counter.
+
+If you start `frontend/app.py` directly and the page says that the project is not
+installed, run `pip install -e . --no-deps` in the repository folder (in the same
+environment that runs Streamlit), or use `streamlit_app.py` instead.
 
 ## Input data
 
@@ -96,14 +103,38 @@ Requirements for the data:
   of 100 kW
 - the old Excel format `.xls` is not supported: save the file as `.xlsx`
 
+## Project structure
+
+```
+pyproject.toml       package definition (backend and frontend)
+streamlit_app.py     entry point for `streamlit run` (also for Streamlit Cloud)
+backend/     model and calculations (no Streamlit code)
+  system_check.py      checks a system before the run
+  oemof_components.py  one function per component, adds it to the oemof model
+  timeseries_import.py reads CSV and Excel files (layout detection)
+  tech_config_registry.py  turns user inputs into component settings
+  model_builder.py / scenario_runner.py   build and solve the model
+  kpis.py / postprocessing.py / results_summary.py   results and cost tables
+frontend/    Streamlit user interface
+  ui_registry.py       which inputs each component shows
+  ui_upload.py         file upload and import settings
+tests/       automatic tests
+```
+
 ## Tests
 
 ```bash
 pip install -r requirements-dev.txt
 pytest
 ```
+
 The model tests need the CBC solver and are skipped when it is not installed.
 They use small systems whose cost can be calculated by hand, for example a
 10 kW demand for 24 hours at 0.30 €/kWh costs 72 €.
+
+## Contributing
+
+Create a branch for each change, add or update a test, and run `pytest` before
+you commit. The tests also run automatically on GitHub for every push.
 
 

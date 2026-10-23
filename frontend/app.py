@@ -2,12 +2,13 @@ import importlib.util
 
 import streamlit as st
 
-# backend and frontend are installed with "pip install -e ."
+# backend and frontend are installed with "pip install -e ." (see the README)
 if importlib.util.find_spec("backend") is None:
     st.error(
         "The project is not installed in this Python environment. "
         "Run `pip install -e . --no-deps` in the repository folder, "
-        "then start the app again."
+        "or start the app with `streamlit run streamlit_app.py` from the "
+        "repository folder."
     )
     st.stop()
 
