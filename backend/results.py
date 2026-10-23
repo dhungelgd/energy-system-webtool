@@ -10,15 +10,18 @@ per bus, solver information) in a form that
 - can be written to and read from a JSON file, and
 - gives the tables back as DataFrames (`Table.to_frame`).
 
-The hourly flows are not part of it yet.
+The hourly flows of every bus are part of it too (`FlowTable`), stored column
+by column with the start time and the length of a time step.
 
 This module does not use Streamlit, so any frontend can use it.
 """
 
+import datetime
 import math
 from pathlib import Path
 from typing import Union
 
+import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -117,6 +120,100 @@ class SolverInfo(BaseModel):
     seconds: Union[float, None] = None
 
 
+class FlowTable(BaseModel):
+    """The flows of one bus over time, stored column by column.
+
+    Each column is one connection (for example "grid_import-->electricity") in
+    kW. The time of each value follows from the start and the length of a time
+    step, so no list of timestamps has to be saved.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    start: datetime.datetime
+    step_hours: float = Field(gt=0)
+    columns: list[str]
+    values: list[list[Union[float, None]]]
+
+    @model_validator(mode="after")
+    def _columns_fit_the_values(self):
+        if len(self.columns) != len(self.values):
+            raise ValueError(
+                f"{len(self.columns)} column names, but {len(self.values)} lists of values"
+            )
+
+        duplicates = sorted({c for c in self.columns if self.columns.count(c) > 1})
+        if duplicates:
+            raise ValueError(f"column names used twice: {', '.join(duplicates)}")
+
+        lengths = {len(column) for column in self.values}
+        if len(lengths) > 1:
+            raise ValueError(f"the columns have different lengths: {sorted(lengths)}")
+
+        return self
+
+    @property
+    def n_steps(self):
+        return len(self.values[0]) if self.values else 0
+
+    @classmethod
+    def from_frame(cls, frame):
+        """Take the flows of a bus (DataFrame with a DatetimeIndex).
+
+        The empty row at the end that oemof adds (the end of the last time step)
+        is not stored; `to_frame` adds it again.
+        """
+
+        if not isinstance(frame.index, pd.DatetimeIndex) or len(frame) == 0:
+            raise ValueError("the flows need a time index and at least one row")
+
+        # everything up to the last row that has any value
+        rows_with_values = np.flatnonzero(frame.notna().any(axis=1).to_numpy())
+        if len(rows_with_values) == 0:
+            raise ValueError("the flows contain no values")
+        real = frame.iloc[: rows_with_values[-1] + 1]
+
+        step = 1.0
+        if len(frame.index) > 1:
+            differences = frame.index[1:] - frame.index[:-1]
+            if (differences != differences[0]).any():
+                raise ValueError("the time steps of the flows are not regular")
+            step = differences[0].total_seconds() / 3600
+
+        return cls(
+            start=frame.index[0].to_pydatetime(),
+            step_hours=step,
+            columns=[str(column) for column in frame.columns],
+            values=[
+                [_cell(value) for value in real[column]] for column in real.columns
+            ],
+        )
+
+    def index(self, with_end_row=False):
+        periods = self.n_steps + (1 if with_end_row else 0)
+        return pd.date_range(
+            start=self.start, periods=periods, freq=pd.Timedelta(hours=self.step_hours)
+        )
+
+    def to_frame(self, with_end_row=True):
+        """The flows as a DataFrame with a time index.
+
+        with_end_row=True gives the same shape as the flows of a run: one empty
+        row at the end, which the plots and the Excel export expect.
+        """
+
+        extra = [math.nan] if with_end_row else []
+
+        return pd.DataFrame(
+            {
+                name: [math.nan if v is None else v for v in column] + extra
+                for name, column in zip(self.columns, self.values)
+            },
+            index=self.index(with_end_row),
+            columns=self.columns,
+        )
+
+
 class BusSummary(BaseModel):
     """The energy of one bus (electricity, heat, gas): sums and shares."""
 
@@ -125,6 +222,7 @@ class BusSummary(BaseModel):
     energy_sums: dict[str, float]
     supply: Table
     use: Table
+    flows: Union[FlowTable, None] = None
 
 
 class ScenarioResult(BaseModel):
@@ -158,11 +256,12 @@ class ScenarioResult(BaseModel):
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_output(cls, output, meta_results=None):
+    def from_output(cls, output, meta_results=None, include_flows=True):
         """Take the numbers out of the dictionary `collect_results` returns.
 
         meta_results is the third value `run_scenario` returns (solver
-        information); it is optional.
+        information); it is optional. include_flows=False leaves out the hourly
+        flows, which gives a much smaller result.
         """
 
         solver = None
@@ -198,6 +297,11 @@ class ScenarioResult(BaseModel):
                     },
                     supply=Table.from_frame(data["supply"]),
                     use=Table.from_frame(data["use"]),
+                    flows=(
+                        FlowTable.from_frame(data["flows"])
+                        if include_flows and data.get("flows") is not None
+                        else None
+                    ),
                 )
                 for bus, data in output["buses"].items()
             },
