@@ -16,9 +16,10 @@ from backend.scenario_runner import run_scenario
 from backend.config_builder import build_config
 from backend.results_summary import collect_results
 from backend.system_check import check_system
+from backend.results import ScenarioResult
 from frontend.ui_inputs import build_ui
 from frontend.ui_checks import component_labels, render_findings
-from frontend.ui_results import render_results
+from frontend.ui_results import open_saved_result, render_results
 from frontend.ui_styles import load_global_styles
 from frontend.ui_admin import render_admin_panel
 
@@ -93,13 +94,23 @@ if run:
             )
 
             # compute tables and figures once and keep them
-            st.session_state.run_output = collect_results(
+            output = collect_results(
                 results,
                 meta_results,
                 config,
                 selected_techs,
                 system_graph=fig
             )
+
+            # the numbers of this run as a file the user can save
+            try:
+                output["result_json"] = ScenarioResult.from_output(
+                    output, meta_results
+                ).model_dump_json()
+            except ValueError as err:
+                st.warning(f"The result could not be prepared for saving: {err}")
+
+            st.session_state.run_output = output
             st.session_state.run_signature = current_signature
 
     except (ValueError, RuntimeError) as err:
@@ -117,8 +128,29 @@ if run:
     else:
         st.success("Optimization completed")
 
+# a result saved earlier (shown instead of the current run while a file is open)
+with st.expander(
+    "Open a saved result",
+    expanded=st.session_state.get("saved_result") is not None
+):
+    saved_file = st.file_uploader(
+        "Result file (JSON), saved with 'Save result (JSON)'",
+        type=["json"],
+        key="saved_result"
+    )
+
+saved_output = open_saved_result(saved_file) if saved_file is not None else None
+
+if saved_output is not None:
+
+    st.info(
+        f"Showing the saved result '{saved_file.name}'. "
+        "Remove the file to see the current run again."
+    )
+    render_results(saved_output, outdated=False)
+
 # results of the last successful run (stay visible when inputs change)
-if st.session_state.run_output is not None:
+elif st.session_state.run_output is not None:
     render_results(
         st.session_state.run_output,
         outdated=(st.session_state.run_signature != current_signature)

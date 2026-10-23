@@ -1,7 +1,9 @@
 import streamlit as st
 import plotly.graph_objects as go
+from pydantic import ValidationError
 
 from backend.kpis import CATEGORY_INVEST, CATEGORY_ENERGY, CATEGORY_REVENUE
+from backend.results import ScenarioResult
 
 # colour per cost category (same blue / orange / teal family as the system graph)
 CATEGORY_COLORS = {
@@ -66,6 +68,36 @@ def cost_figure(table):
     return fig
 
 
+@st.cache_data(show_spinner="Opening the saved result...")
+def _rebuild_output(content):
+    # drawing the figures takes a few seconds, so this is done once per file
+    return ScenarioResult.model_validate_json(content).to_output()
+
+
+def open_saved_result(uploaded_file):
+    """The output of a result file, ready for render_results.
+
+    Returns None, after showing a message, if the file cannot be shown.
+    """
+
+    try:
+        return _rebuild_output(uploaded_file.getvalue())
+
+    except ValidationError as error:
+        first = error.errors()[0]
+        where = ".".join(str(part) for part in first["loc"])
+        st.error(
+            "This file is not a result saved by this tool, or it is damaged "
+            f"({where}: {first['msg']})."
+        )
+
+    except ValueError as error:
+        # for example a result that was saved without the hourly flows
+        st.error(str(error))
+
+    return None
+
+
 def render_results(output, outdated=False):
     """Show the stored results of the last optimization run.
 
@@ -101,12 +133,25 @@ def render_results(output, outdated=False):
             "cover only the simulated period, so the system cost is not an annual figure."
         )
 
-    st.download_button(
+    excel_column, json_column, _ = st.columns(3)
+
+    excel_column.download_button(
         "Download results (Excel)",
         data=output["excel"],
         file_name="energy_system_results.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+    # a result that was opened from a file does not offer to save itself again
+    if output.get("result_json"):
+        json_column.download_button(
+            "Save result (JSON)",
+            data=output["result_json"],
+            file_name="energy_system_result.json",
+            mime="application/json",
+            help="The numbers of this run as a file. Open it again later "
+                 "under 'Open a saved result'.",
+        )
 
     buses = output["buses"]
 
