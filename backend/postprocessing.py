@@ -1,4 +1,5 @@
 from oemof.solph import views
+from oemof.solph.components import GenericStorage
 import pandas as pd
 
 # Extract flows from a bus
@@ -47,10 +48,20 @@ def split_supply_demand(flows, bus_name):
 
     return supply_cols, demand_cols
 
-# compute total energy per flow
+# length of one time step in hours (1.0 if it cannot be determined)
+def timestep_hours(index):
+
+    if len(index) < 2 or not isinstance(index, pd.DatetimeIndex):
+        return 1.0
+
+    step = pd.Series(index).diff().dropna().median()
+
+    return step.total_seconds() / 3600
+
+# compute total energy per flow (flows are powers in kW, so energy = sum * step length)
 def compute_energy_sums(flows):
 
-    return flows.sum()
+    return flows.sum() * timestep_hours(flows.index)
 
 # full processing pipeline
 def process_results(results, bus_name):
@@ -84,6 +95,11 @@ def get_investment_capacities(results):
     for (comp, bus), data in results.items():
 
         if not hasattr(comp, "label"):
+            continue
+
+        # the power flows of a storage are linked to its capacity (C-rate);
+        # only the storage capacity itself is reported
+        if isinstance(comp, GenericStorage) and bus is not None:
             continue
 
         tech = comp.label

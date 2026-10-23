@@ -1,10 +1,11 @@
-from ui_blocks import PARAMS_BLOCK
+from frontend.ui_blocks import PARAMS_BLOCK, STORAGE_PARAMS_BLOCK
 
 UI_REGISTRY = {
 
     # electricity demand
     "demand": {
         "label": "Electricity Demand",
+        "group": "Demand",
 
         "timeseries": {
             "key": "electricity_demand",
@@ -26,6 +27,7 @@ UI_REGISTRY = {
     # heating demand
     "heat_demand": {
         "label": "Heat Demand",
+        "group": "Demand",
 
         "timeseries": {
             "key": "heat_demand",
@@ -46,20 +48,46 @@ UI_REGISTRY = {
     # grid import
     "grid": {
         "label": "Electricity Grid",
+        "group": "Grid & fuel",
         "inputs": [
+            {
+                "key": "price_mode",
+                "type": "selectbox",
+                "label": "Electricity price",
+                "options": ["constant", "timeseries"],
+                "control": True
+            },
             {
                 "key": "variable_costs",
                 "label": "Electricity Price (€/kWh)",
                 "type": "number",
                 "default": 0.3,
-                "step": 0.01
+                "step": 0.01,
+                "format": "%.4f",
+                "visible_if": {"price_mode": "constant"}
+            },
+            {
+                "key": "price_unit",
+                "type": "selectbox",
+                "label": "Unit of the uploaded prices",
+                "options": ["€/kWh", "ct/kWh", "€/MWh"],
+                "visible_if": {"price_mode": "timeseries"}
             }
-        ]
+        ],
+
+        # only used when the price mode is "timeseries"
+        "timeseries": {
+            "key": "grid_price",
+            "upload_label": "Upload electricity price timeseries (CSV)",
+            "default_column": 1,
+            "active_if": {"price_mode": "timeseries"}
+        }
     },
 
     # grid feed-in
     "grid_feedin": {
         "label": "Grid Feed-in",
+        "group": "Grid & fuel",
         "inputs": [
             {
                 "key": "feedin_tariff",
@@ -67,6 +95,7 @@ UI_REGISTRY = {
                 "type": "number",
                 "default": 0.078,
                 "step": 0.01,
+                "format": "%.4f"
             }
         ]
     },
@@ -74,6 +103,7 @@ UI_REGISTRY = {
     # pv system
     "pv": {
         "label": "PV System",
+        "group": "Generation",
         "inputs": [
             *PARAMS_BLOCK
         ],
@@ -85,11 +115,27 @@ UI_REGISTRY = {
         }
     },
 
+    # wind turbine
+    "wind": {
+        "label": "Wind Turbine",
+        "group": "Generation",
+        "inputs": [
+            *PARAMS_BLOCK
+        ],
+
+        "timeseries": {
+            "key": "wind",
+            "upload_label": "Upload wind profile timeseries data",
+            "default_column": 4
+        }
+    },
+
     # battery
     "battery": {
         "label": "Battery Storage",
+        "group": "Storage",
         "inputs": [
-            *PARAMS_BLOCK,
+            *STORAGE_PARAMS_BLOCK,
 
             {
                 "key": "efficiency_charge",
@@ -107,7 +153,16 @@ UI_REGISTRY = {
                 "key": "loss_rate",
                 "type": "number",
                 "label": "Self-discharge rate (/h)",
-                "default": 0.001
+                "default": 0.001,
+                "step": 0.001,
+                "format": "%.4f"
+            },
+            {
+                "key": "c_rate",
+                "type": "number",
+                "label": "Charge/discharge rate (kW per kWh)",
+                "default": 0.5,
+                "step": 0.05
             },
         ]
     },
@@ -115,8 +170,9 @@ UI_REGISTRY = {
     # heat storage
     "heat_storage": {
         "label": "Heat Storage",
+        "group": "Storage",
         "inputs": [
-            *PARAMS_BLOCK,
+            *STORAGE_PARAMS_BLOCK,
 
             {
                 "key": "efficiency_charge",
@@ -134,21 +190,33 @@ UI_REGISTRY = {
                 "key": "loss_rate",
                 "type": "number",
                 "label": "Self-discharge rate (/h)",
-                "default": 0.001
+                "default": 0.001,
+                "step": 0.001,
+                "format": "%.4f"
+            },
+            {
+                "key": "c_rate",
+                "type": "number",
+                "label": "Charge/discharge rate (kW per kWh)",
+                "default": 0.25,
+                "step": 0.05
             },
         ]
     },
 
 
     # gas import
-        "gas_import": {
+    "gas_import": {
         "label": "Gas Import",
+        "group": "Grid & fuel",
         "inputs": [
             {
                 "key": "variable_costs",
                 "type": "number",
                 "label": "Gas Price (€/kWh)",
-                "default": 0.10
+                "default": 0.10,
+                "step": 0.01,
+                "format": "%.4f"
             }
         ]
     },
@@ -156,6 +224,7 @@ UI_REGISTRY = {
     # gas boiler
     "gas_boiler": {
         "label": "Gas Boiler",
+        "group": "Conversion",
         "inputs": [
             *PARAMS_BLOCK,
             {
@@ -166,16 +235,51 @@ UI_REGISTRY = {
         ]
     },
 
+    # heating rod (electric heater)
+    "heating_rod": {
+        "label": "Heating Rod",
+        "group": "Conversion",
+        "inputs": [
+            *PARAMS_BLOCK,
+            {
+                "key": "efficiency",
+                "type": "number",
+                "label": "Efficiency (heat out / electricity in)"
+            },
+        ]
+    },
+
+    # CHP plant (combined heat and power, gas fired)
+    "chp": {
+        "label": "CHP Plant",
+        "group": "Conversion",
+        "inputs": [
+            *PARAMS_BLOCK,
+            {
+                "key": "efficiency_el",
+                "type": "number",
+                "label": "Electrical efficiency"
+            },
+            {
+                "key": "efficiency_th",
+                "type": "number",
+                "label": "Thermal efficiency"
+            },
+        ]
+    },
+
     # heat pump
     "heat_pump": {
         "label": "Heat Pump",
+        "group": "Conversion",
 
         "inputs": [
             {
                 "key": "cop_mode",
                 "type": "selectbox",
                 "label": "COP mode",
-                "options": ["constant", "timeseries"]
+                "options": ["constant", "timeseries"],
+                "control": True
             },
 
             {
@@ -198,7 +302,12 @@ UI_REGISTRY = {
             "timeseries": {
                 "key": "cop_series",
                 "upload_label": "Upload COP timeseries data",
-                "default_column": 6
+                "default_column": 6,
+                "active_if": {"cop_mode": "timeseries"}
             }
     }
 }
+
+
+# order of the groups in the component selection (sidebar)
+GROUP_ORDER = ["Demand", "Grid & fuel", "Generation", "Conversion", "Storage"]

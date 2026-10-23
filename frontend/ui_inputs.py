@@ -3,40 +3,28 @@ import pandas as pd
 from backend.input_schema import SolverConfig
 from frontend.ui_registry import UI_REGISTRY
 from frontend.ui_defaults import TECH_DEFAULTS
-
-# component selector
-def select_components():
-
-    st.sidebar.header("System Components")
-
-    return st.sidebar.multiselect(
-        "Select components",
-        list(UI_REGISTRY.keys())
-    )
+from frontend.ui_selection import select_components
+from frontend.ui_upload import UPLOAD_TYPES, read_uploaded_table
 
 # time configuration
+# the model always covers exactly one year (365 days) in hourly resolution
+DAYS_PER_YEAR = 365
+RESOLUTION = "1h"
+STEPS_PER_YEAR = DAYS_PER_YEAR * 24
+
 def time_input_block():
 
     st.sidebar.header("Time Settings")
     start_date = st.sidebar.date_input("Start date", pd.to_datetime("2021-01-01"))
-    days = st.sidebar.number_input("Periods (Number of days)", 1, 366, 365)
-    freq_map = {"1h": 24,"15min": 96}
-
-    res_options = ["15min", "1h"]
-
-    resolution = st.sidebar.selectbox(
-        "Resolution",
-        res_options,
-        index=res_options.index("1h"),
-        key="resolution"
+    st.sidebar.caption(
+        f"Simulated period: {DAYS_PER_YEAR} days, hourly resolution "
+        f"({STEPS_PER_YEAR} time steps per time series)"
     )
-
-    periods = days * freq_map[resolution]
 
     timeindex = pd.date_range(
         start=start_date,
-        periods=periods,
-        freq=resolution,
+        periods=STEPS_PER_YEAR,
+        freq=RESOLUTION,
     )
 
     return timeindex
@@ -56,19 +44,55 @@ def field_is_visible(field, current_values):
 
     return True
 
+
+# shared upload: one file (CSV or Excel) with all time series, uploaded once
+def shared_upload_block():
+    st.sidebar.header("Time Series Data")
+
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload one file (CSV or Excel) with all time series",
+        type=UPLOAD_TYPES,
+        key="shared_ts_csv"
+    )
+
+    df = None
+
+    if uploaded_file is not None:
+        with st.sidebar:
+            df = read_uploaded_table(uploaded_file, "shared")
+
+    if df is not None:
+        st.session_state["shared_ts_df"] = df
+    else:
+        st.session_state.pop("shared_ts_df", None)
+
+
 # generic timeseries handler
 def render_timeseries(cfg, comp):
 
-    uploaded_file = st.file_uploader(
-        cfg.get("upload_label", f"Upload {comp} timeseries data"),
-        type=["csv"],
-        key=f"{comp}_csv"
-    )
+    shared_df = st.session_state.get("shared_ts_df")
+
+    # optional: a separate file for this component only
+    with st.expander(
+        "Use a separate file for this component",
+        expanded=shared_df is None
+    ):
+        uploaded_file = st.file_uploader(
+            cfg.get("upload_label", f"Upload {comp} timeseries data"),
+            type=UPLOAD_TYPES,
+            key=f"{comp}_csv"
+        )
 
     if uploaded_file is not None:
-        st.session_state[f"{comp}_df"] = pd.read_csv(uploaded_file)
+        st.session_state[f"{comp}_df"] = read_uploaded_table(uploaded_file, comp)
+    else:
+        st.session_state.pop(f"{comp}_df", None)
 
+    # own file first, otherwise the shared file
     df = st.session_state.get(f"{comp}_df")
+
+    if df is None:
+        df = shared_df
 
     if df is None:
         return None, None
@@ -82,7 +106,8 @@ def render_timeseries(cfg, comp):
         f"Select {comp} column",
         df.columns,
         index=default_col,
-        key=f"{comp}_col"
+        # new key when the columns change, so the preselection is recalculated
+        key=f"{comp}_col_{abs(hash(tuple(df.columns)))}"
     )
     st.write(df.head())
 
@@ -93,42 +118,37 @@ def render_component(comp):
 
     schema = UI_REGISTRY[comp]
 
-    st.subheader(schema["label"])
-
     tech_inputs = {comp: {}}
     input_data = {}
 
     defaults = TECH_DEFAULTS.get(comp, {})
 
-    # static control inputs
+    # control fields first (e.g. cop_mode, price_mode): they decide what else is shown
     for field in schema.get("inputs", []):
 
-        # render ONLY control fields first (e.g. cop_mode)
-        if field.get("key") == "cop_mode":
-            value = defaults.get("cop_mode", "constant")
+        if not field.get("control"):
+            continue
 
-            tech_inputs[comp]["cop_mode"] = st.selectbox(
-                field["label"],
-                field["options"],
-                index=field["options"].index(value)
-                if value in field["options"] else 0,
-                key=f"{comp}_cop_mode"
-            )
+        key = field["key"]
+        value = defaults.get(key, field["options"][0])
 
-    #timeseries data
+        tech_inputs[comp][key] = st.selectbox(
+            field["label"],
+            field["options"],
+            index=field["options"].index(value)
+            if value in field["options"] else 0,
+            key=f"{comp}_{key}"
+        )
+
+    # timeseries data (only when its condition is met, e.g. price_mode == "timeseries")
     ts_cfg = schema.get("timeseries")
 
     if ts_cfg:
 
-        use_timeseries = True
-
-        if comp == "heat_pump":
-            use_timeseries = (
-                    tech_inputs[comp].get(
-                        "cop_mode",
-                        defaults.get("cop_mode", "constant")
-                    ) == "timeseries"
-            )
+        use_timeseries = all(
+            tech_inputs[comp].get(key, defaults.get(key)) == expected
+            for key, expected in ts_cfg.get("active_if", {}).items()
+        )
 
         if use_timeseries:
 
@@ -137,17 +157,15 @@ def render_component(comp):
             if series is not None:
 
                 tech_inputs[comp][ts_cfg["key"]] = column
-                if comp == "heat_pump":
-                    input_data["cop_series"] = series
-                else:
-                    input_data[ts_cfg["key"]] = series
+                input_data[ts_cfg["key"]] = series
 
     # static inputs
     for field in schema.get("inputs", []):
 
         key = field["key"]
-        # skip COP mode
-        if key == "cop_mode":
+
+        # control fields were already rendered above
+        if field.get("control"):
             continue
 
         # visibility control
@@ -166,15 +184,20 @@ def render_component(comp):
                 label,
                 value=value,
                 step=field.get("step", 0.1),
+                format=field.get("format"),
                 key=f"{comp}_{key}"
             )
 
         # selectbox
         elif ftype == "selectbox":
 
+            options = field.get("options", [])
+
             tech_inputs[comp][key] = st.selectbox(
                 label,
-                field.get("options", []),
+                options,
+                index=options.index(defaults[key])
+                if defaults.get(key) in options else 0,
                 key=f"{comp}_{key}"
             )
 
@@ -190,18 +213,14 @@ def render_component(comp):
     return tech_inputs, input_data
 
 
-# solver block
+# solver block (CBC is the only solver offered)
 def solver_block():
 
     st.sidebar.header("Solver")
+    st.sidebar.caption("Solver: CBC")
 
     return SolverConfig(
-        name=st.sidebar.selectbox(
-            "Solver",
-            ["cbc", "gurobi", "glpk"],
-            key="solver_name"
-        ),
-
+        name="cbc",
         tee=st.sidebar.checkbox(
             "Show solver output",
             value=False,
@@ -222,10 +241,22 @@ def build_ui():
     timeindex = time_input_block()
     all_input_data["timeindex"] = timeindex
 
-    for component in selected_techs:
-        tech_inputs, input_data = render_component(component)
-        all_tech_inputs.update(tech_inputs)
-        all_input_data.update(input_data)
+    # one CSV with all time series (optional)
+    shared_upload_block()
+
+    # one tab per selected component
+    if selected_techs:
+
+        tabs = st.tabs([UI_REGISTRY[c]["label"] for c in selected_techs])
+
+        for component, tab in zip(selected_techs, tabs):
+            with tab:
+                tech_inputs, input_data = render_component(component)
+                all_tech_inputs.update(tech_inputs)
+                all_input_data.update(input_data)
+
+    else:
+        st.info("Select the components of your energy system in the sidebar.")
 
     solver_cfg = solver_block()
 

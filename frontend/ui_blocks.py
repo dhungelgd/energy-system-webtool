@@ -8,3 +8,13 @@ PARAMS_BLOCK = [
     {"key": "maximum", "type": "number", "label": "Maximum capacity"}
 ]
 
+# a storage is sized in kWh (energy), not in kW
+STORAGE_UNIT_LABELS = {
+    "capacity": "Capacity (kWh)",
+    "capex": "CAPEX (€/kWh)",
+    "maximum": "Maximum capacity (kWh)",
+}
+STORAGE_PARAMS_BLOCK = [
+    {**field, "label": STORAGE_UNIT_LABELS.get(field["key"], field["label"])}
+    for field in PARAMS_BLOCK
+]
