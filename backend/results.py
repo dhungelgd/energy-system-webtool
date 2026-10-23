@@ -308,6 +308,70 @@ class ScenarioResult(BaseModel):
         )
 
     # ------------------------------------------------------------------
+    # back to what the results page shows
+    # ------------------------------------------------------------------
+
+    def to_output(self):
+        """Rebuild the dictionary `collect_results` returns.
+
+        The tables are made from the saved numbers, and the figures and the
+        Excel file are drawn again from them. Only the diagram of the energy
+        system cannot be rebuilt: "system_graph" is None, which the results
+        page handles.
+
+        Needs the hourly flows. A result made with include_flows=False cannot be
+        shown, because the flow figure and the Excel file need them.
+        """
+
+        # imported here: plotting and Excel are only needed for this
+        from backend.export import build_excel
+        from backend.plotting import create_sankey, plot_energy_flows_plotly
+
+        buses = {}
+
+        for bus, summary in self.buses.items():
+
+            if summary.flows is None:
+                raise ValueError(
+                    f"this result was saved without the hourly flows (bus '{bus}'), "
+                    f"so it cannot be shown. Save it with include_flows=True."
+                )
+
+            flows = summary.flows.to_frame()
+            energy_sums = pd.Series(summary.energy_sums, dtype=float)
+
+            buses[bus] = {
+                "flows": flows,
+                "energy_sums": energy_sums,
+                "supply": summary.supply.to_frame(),
+                "use": summary.use.to_frame(),
+                "flow_fig": plot_energy_flows_plotly(flows=flows, bus_name=bus),
+                "sankey_fig": create_sankey(energy_sums),
+            }
+
+        output = {
+            "objective": self.objective,
+            "horizon_hours": self.horizon_hours,
+            "system_graph": None,
+            "buses": buses,
+            "key_figures": [
+                {
+                    "label": figure.label,
+                    "value": figure.value,
+                    "unit": figure.unit,
+                    "help": figure.help,
+                }
+                for figure in self.key_figures
+            ],
+            "cost_breakdown": self.cost_breakdown.to_frame(),
+            "capacities": self.capacities.to_frame(),
+        }
+
+        output["excel"] = build_excel(output)
+
+        return output
+
+    # ------------------------------------------------------------------
     # saving and loading
     # ------------------------------------------------------------------
 
