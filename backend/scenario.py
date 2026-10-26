@@ -20,6 +20,7 @@ from typing import Literal, Union
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from backend.component_specs import get_spec
 from backend.input_schema import SolverConfig
 from backend.oemof_components import TECH_MAPPING
 
@@ -151,6 +152,8 @@ class Scenario(BaseModel):
 
     @model_validator(mode="after")
     def _settings_fit_the_components(self):
+        problems = []
+
         for component, values in self.settings.items():
 
             if component not in self.components:
@@ -170,6 +173,15 @@ class Scenario(BaseModel):
                     raise ValueError(
                         f"{component}.{key} must be {allowed}, not {value!r}"
                     )
+
+            # components with a specification are checked in detail: unknown
+            # settings, wrong types and values outside the allowed range
+            spec = get_spec(component)
+            if spec is not None:
+                problems.extend(spec.problems(values))
+
+        if problems:
+            raise ValueError("; ".join(problems))
 
         return self
 
