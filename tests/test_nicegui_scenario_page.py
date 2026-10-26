@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("nicegui")
-from nicegui import ui  # noqa: E402
 from nicegui.elements.upload_files import SmallFileUpload  # noqa: E402
 from nicegui.testing import User  # noqa: E402
 
@@ -137,10 +136,9 @@ async def test_a_bad_file_after_a_good_one_clears_the_old_details(user: User):
 
 
 def test_the_upload_element_only_accepts_json_files():
-    # the browser file dialog is limited to .json files (checked in the page code)
-    import inspect
+    # the browser file dialog is limited to .json files; the source is read as
+    # text, because importing the page module here would break the simulation
+    # of the other tests (see the note in test_nicegui_run.py)
+    source = (Path(__file__).resolve().parent.parent / "frontend_nicegui" / "app.py").read_text(encoding="utf-8")
 
-    from frontend_nicegui import app
-
-    assert "accept=.json" in inspect.getsource(app.home_page)
-    assert ui.upload is not None
+    assert "accept=.json" in source

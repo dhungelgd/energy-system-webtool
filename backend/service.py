@@ -33,6 +33,11 @@ class ScenarioNotReady(ScenarioError):
         problems = " ".join(f"({n}) {f.message}" for n, f in enumerate(self.findings, 1))
         super().__init__(f"The system check found errors. {problems}")
 
+    def __reduce__(self):
+        # so that it can be sent between processes (pickle): rebuild it from the
+        # findings, not from the message text
+        return (type(self), (self.findings,))
+
 
 def check(scenario, labels=None):
     """The findings of the system check for a scenario (errors first).

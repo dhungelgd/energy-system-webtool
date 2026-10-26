@@ -81,6 +81,22 @@ def test_run_does_not_start_when_the_check_finds_errors():
 def test_not_ready_is_a_scenario_error():
     assert issubclass(ScenarioNotReady, ScenarioError)
 
+def test_the_errors_can_be_sent_between_processes():
+    # a frontend may run the optimization in another process (pickle)
+    import pickle
+
+    with pytest.raises(ScenarioNotReady) as error:
+        run(grid_only(series={"electricity_demand": [1.0] * 10}))
+
+    again = pickle.loads(pickle.dumps(error.value))
+
+    assert type(again) is ScenarioNotReady
+    assert [f.message for f in again.findings] == [f.message for f in error.value.findings]
+    assert str(again) == str(error.value)
+
+    plain = pickle.loads(pickle.dumps(ScenarioError("boom")))
+    assert str(plain) == "boom"
+
 
 def test_without_the_check_the_model_reports_the_problem():
     scenario = grid_only(series={"electricity_demand": [1.0] * 10})

@@ -1,0 +1,64 @@
+"""How the NiceGUI pages word a result (no NiceGUI needed)."""
+
+import pytest
+
+from backend.results import KeyFigure, ScenarioResult, SolverInfo, Table
+from frontend_nicegui.result_view import format_value, headline_cards, solver_text
+
+
+def result(solver=None, figures=()):
+    return ScenarioResult(
+        objective=1.0, horizon_hours=24, solver=solver, key_figures=list(figures),
+        cost_breakdown=Table(columns=[]), capacities=Table(columns=[]),
+    )
+
+
+@pytest.mark.parametrize("value, unit, expected", [
+    (72.0, "€", "72 €"),
+    (19710000.4, "€", "19,710,000 €"),
+    (80.2, "%", "80 %"),
+    (75.14, "kW", "75.1 kW"),
+    (240.0, "kWh", "240 kWh"),
+    (9999.0, "kWh", "9,999 kWh"),
+    (65700000.0, "kWh", "65,700.0 MWh"),
+    (3.5, "", "3.50 "),
+    (3.5, "h", "3.50 h"),
+    (None, "€", "-"),
+])
+def test_values_are_worded_readably(value, unit, expected):
+    assert format_value(value, unit) == expected
+
+
+def test_the_wording_is_the_same_as_on_the_streamlit_page():
+    pytest.importorskip("streamlit")
+    from frontend.ui_results import format_value as streamlit_format
+
+    for value in (0.0, 72.0, -1500.5, 9999.0, 10000.0, 12345678.9):
+        for unit in ("€", "%", "kW", "kWh", "h", ""):
+            assert format_value(value, unit) == streamlit_format(value, unit)
+
+
+def test_headline_cards_hold_label_value_and_help():
+    cards = headline_cards(result(figures=[
+        KeyFigure(label="System cost", value=72.0, unit="€", help="The objective."),
+        KeyFigure(label="Grid import", value=240.0, unit="kWh"),
+        KeyFigure(label="Empty", value=None, unit="kW"),
+    ]))
+
+    assert cards == [
+        {"label": "System cost", "value": "72 €", "help": "The objective."},
+        {"label": "Grid import", "value": "240 kWh", "help": ""},
+        {"label": "Empty", "value": "-", "help": ""},
+    ]
+
+
+def test_a_result_without_figures_gives_no_cards():
+    assert headline_cards(result()) == []
+
+
+def test_the_solver_line():
+    done = SolverInfo(status="ok", termination="optimal", seconds=2.66)
+
+    assert solver_text(result(solver=done)) == "Solver: optimal in 2.7 s"
+    assert solver_text(result(solver=SolverInfo(status="ok", termination="optimal"))) == "Solver: optimal"
+    assert solver_text(result()) == "Solver: no information"
