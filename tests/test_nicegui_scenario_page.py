@@ -31,7 +31,7 @@ async def table_rows(user: User, marker: str):
 async def test_the_page_asks_for_a_scenario_file(user: User):
     await user.open("/")
 
-    await user.should_see("1. Open a scenario")
+    await user.should_see("Open a scenario file")
     await user.should_see(marker="upload")
     await user.should_not_see(marker="scenario-name")
 

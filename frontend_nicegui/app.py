@@ -9,6 +9,7 @@ import logging
 from nicegui import events, run, ui
 
 from backend import service
+from frontend.ui_registry import UI_REGISTRY
 from frontend_nicegui.result_view import headline_cards, solver_text
 from frontend_nicegui.scenario_view import (
     ScenarioFileError,
@@ -17,6 +18,12 @@ from frontend_nicegui.scenario_view import (
     describe_period,
     load_scenario,
     series_rows,
+)
+from frontend_nicegui.selection import (
+    ComponentSelection,
+    components_by_group,
+    slug,
+    template_names,
 )
 
 TITLE = "Energy System Web Tool"
@@ -68,7 +75,7 @@ def show_run(scenario):
     """The button that starts the optimization, and the place for its result."""
 
     with ui.card().classes("w-full"):
-        ui.label("2. Run the optimization").classes("text-xl font-semibold")
+        ui.label("Run the optimization").classes("text-xl font-semibold")
         ui.label(
             "The optimization runs in the background, so the page stays usable. "
             "A full year can take from a few seconds up to a minute."
@@ -114,6 +121,78 @@ def show_run(scenario):
             button.enable()
 
     button.on_click(start)
+
+
+def build_picker():
+    """Choose the components of an energy system: a template, or tick them by group.
+
+    Returns the ComponentSelection that the page keeps up to date.
+    """
+
+    selection = ComponentSelection()
+    boxes = {}
+
+    @ui.refreshable
+    def summary():
+        if len(selection) == 0:
+            ui.label("Nothing selected yet. Choose a template or tick components.").classes(
+                "text-grey").mark("selection-empty")
+            return
+
+        count = len(selection)
+        ui.label(f"{count} component{'s' if count != 1 else ''} selected").classes(
+            "font-semibold").mark("selection-count")
+
+        for group, chosen in selection.selected_by_group():
+            with ui.row().classes("items-center gap-2"):
+                ui.label(group).classes("text-grey min-w-[8rem]")
+                for key, label in chosen:
+                    ui.chip(label).props("dense").mark(f"chosen-{key}")
+
+    def show_selection_in_boxes():
+        for key, box in boxes.items():
+            box.value = selection.is_selected(key)
+        summary.refresh()
+
+    def on_tick(key, event):
+        # also called when a template sets a box; then nothing is left to do
+        if selection.is_selected(key) != event.value:
+            selection.set(key, event.value)
+            summary.refresh()
+
+    def use_template(name):
+        selection.apply_template(name)
+        show_selection_in_boxes()
+
+    def clear_selection():
+        selection.clear()
+        show_selection_in_boxes()
+
+    with ui.card().classes("w-full"):
+        ui.label("Build a scenario").classes("text-xl font-semibold")
+        ui.label("Start from a template, or tick the components of your energy system.")
+
+        with ui.row().classes("w-full gap-2"):
+            for name in template_names():
+                ui.button(name, on_click=lambda _, n=name: use_template(n)).props(
+                    "outline dense no-caps").mark(f"template-{slug(name)}")
+            ui.button("Clear selection", on_click=lambda _: clear_selection()).props(
+                "flat dense no-caps").mark("clear-selection")
+
+        with ui.row().classes("w-full gap-8"):
+            for group, keys in components_by_group().items():
+                with ui.column().classes("gap-0"):
+                    ui.label(group).classes("font-semibold")
+                    for key in keys:
+                        boxes[key] = ui.checkbox(
+                            UI_REGISTRY[key]["label"],
+                            on_change=lambda event, k=key: on_tick(k, event),
+                        ).mark(f"component-{key}")
+
+        ui.separator()
+        summary()
+
+    return selection
 
 
 def show_findings(findings):
@@ -172,11 +251,14 @@ def home_page():
         ui.label(TITLE).classes("text-3xl font-bold")
         ui.label("Version with the NiceGUI interface (work in progress).")
 
+        build_picker()
+
         with ui.card().classes("w-full"):
-            ui.label("1. Open a scenario").classes("text-xl font-semibold")
+            ui.label("Open a scenario file").classes("text-xl font-semibold")
             ui.label(
-                "A scenario file (JSON) holds the components, settings and time "
-                "series of one energy system. Examples are in the folder examples/scenarios."
+                "Or open a scenario that was saved earlier. A scenario file (JSON) "
+                "holds the components, settings and time series of one energy system. "
+                "Examples are in the folder examples/scenarios."
             )
 
             async def open_file(event: events.UploadEventArguments):

@@ -68,7 +68,7 @@ def use_solver(monkeypatch, solver):
 async def test_a_scenario_without_errors_offers_to_run(user: User):
     await open_example(user, "grid_only_24h")
 
-    await user.should_see("2. Run the optimization")
+    await user.should_see("Run the optimization")
     await user.should_see(marker="run")
 
 
@@ -77,7 +77,7 @@ async def test_a_scenario_with_errors_does_not_offer_to_run(user: User):
 
     await user.should_see("Fix the errors above")
     await user.should_not_see(marker="run")
-    await user.should_not_see("2. Run the optimization")
+    await user.should_not_see("Run the optimization")
 
 
 async def test_a_scenario_with_only_warnings_can_be_run(user: User):
