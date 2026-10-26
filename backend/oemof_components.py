@@ -6,7 +6,13 @@ from backend.price_units import price_series_in_eur_per_kwh, DEFAULT_PRICE_UNIT
 
 # function to calculate epc
 def calculate_epc(capex, opex, lifetime, interest_rate):
-    epc_capex = economics.annuity(capex=capex, n=lifetime, wacc=interest_rate / 100)
+    if interest_rate == 0:
+        # an annuity needs an interest rate above zero; without interest the
+        # investment is simply spread evenly over the lifetime
+        epc_capex = capex / lifetime
+    else:
+        epc_capex = economics.annuity(capex=capex, n=lifetime, wacc=interest_rate / 100)
+
     fixed_opex_per_year = opex * capex / 100
     return epc_capex + fixed_opex_per_year
 
