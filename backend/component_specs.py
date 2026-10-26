@@ -10,8 +10,10 @@ One place for knowledge that forms, checks and diagrams all need:
   carriers (buses) it connects to. A diagram of the energy system is drawn from
   this.
 
-Only the PV plant has a specification so far. The other components follow one
-by one; until then they are not checked here.
+All 13 components have a short description (`INFO`: name, group, role and
+connections). Only the PV plant has a full specification of its settings so far.
+The other components follow one by one; until then their settings are not
+checked here.
 
 This module does not use Streamlit or NiceGUI, so any frontend can use it.
 """
@@ -94,6 +96,37 @@ class Connection(BaseModel):
     direction: Direction
 
 
+def _check_role(key, role, connections):
+    directions = {c.direction for c in connections}
+
+    if role == "source" and directions != {"out"}:
+        raise ValueError(f"{key}: a source only gives energy out")
+    if role == "sink" and directions != {"in"}:
+        raise ValueError(f"{key}: a sink only takes energy in")
+    if role == "storage" and directions != {"both"}:
+        raise ValueError(f"{key}: a storage takes energy in and gives it out")
+    if role == "converter" and not {"in", "out"} <= directions:
+        raise ValueError(f"{key}: a converter needs an input and an output")
+
+
+class ComponentInfo(BaseModel):
+    """What a component is and where it connects (no settings)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    key: str
+    label: str
+    short_label: str          # fits into a box of a diagram
+    group: str
+    role: Role
+    connections: tuple[Connection, ...]
+
+    @model_validator(mode="after")
+    def _consistent(self):
+        _check_role(self.key, self.role, self.connections)
+        return self
+
+
 class ComponentSpec(BaseModel):
     """Everything the tool knows about one kind of component."""
 
@@ -129,15 +162,7 @@ class ComponentSpec(BaseModel):
                 if bad:
                     raise ValueError(f"{field.key}: visible_if uses unknown values {sorted(bad)}")
 
-        directions = {c.direction for c in self.connections}
-        if self.role == "source" and directions != {"out"}:
-            raise ValueError(f"{self.key}: a source only gives energy out")
-        if self.role == "sink" and directions != {"in"}:
-            raise ValueError(f"{self.key}: a sink only takes energy in")
-        if self.role == "storage" and directions != {"both"}:
-            raise ValueError(f"{self.key}: a storage takes energy in and gives it out")
-        if self.role == "converter" and not {"in", "out"} <= directions:
-            raise ValueError(f"{self.key}: a converter needs an input and an output")
+        _check_role(self.key, self.role, self.connections)
 
         return self
 
@@ -227,7 +252,136 @@ class ComponentSpec(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# the components
+# all components: what they are and where they connect
+# ---------------------------------------------------------------------------
+
+def _info(key, label, short_label, group, role, *connections):
+    return ComponentInfo(
+        key=key, label=label, short_label=short_label, group=group, role=role,
+        connections=tuple(Connection(bus=bus, direction=direction) for bus, direction in connections),
+    )
+
+
+# in the order of the groups, and inside a group in the order of the Streamlit interface
+INFO = {
+    info.key: info
+    for info in (
+        _info("demand", "Electricity demand", "Demand", "Demand", "sink",
+              ("electricity", "in")),
+        _info("heat_demand", "Heat demand", "Heat demand", "Demand", "sink",
+              ("heat", "in")),
+
+        _info("grid", "Electricity grid", "Grid", "Grid & fuel", "source",
+              ("electricity", "out")),
+        _info("grid_feedin", "Grid feed-in", "Feed-in", "Grid & fuel", "sink",
+              ("electricity", "in")),
+        _info("gas_import", "Gas import", "Gas import", "Grid & fuel", "source",
+              ("gas", "out")),
+
+        _info("pv", "PV system", "PV", "Generation", "source",
+              ("electricity", "out")),
+        _info("wind", "Wind turbine", "Wind", "Generation", "source",
+              ("electricity", "out")),
+
+        _info("gas_boiler", "Gas boiler", "Boiler", "Conversion", "converter",
+              ("gas", "in"), ("heat", "out")),
+        _info("heating_rod", "Heating rod", "Heating rod", "Conversion", "converter",
+              ("electricity", "in"), ("heat", "out")),
+        _info("chp", "CHP plant", "CHP", "Conversion", "converter",
+              ("gas", "in"), ("electricity", "out"), ("heat", "out")),
+        _info("heat_pump", "Heat pump", "Heat pump", "Conversion", "converter",
+              ("electricity", "in"), ("heat", "out")),
+
+        _info("battery", "Battery storage", "Battery", "Storage", "storage",
+              ("electricity", "both")),
+        _info("heat_storage", "Heat storage", "Heat storage", "Storage", "storage",
+              ("heat", "both")),
+    )
+}
+
+BUSES = ("electricity", "heat", "gas")
+
+
+def get_info(key):
+    try:
+        return INFO[key]
+    except KeyError:
+        raise KeyError(f"unknown component '{key}'") from None
+
+
+class BusBalance(BaseModel):
+    """Who supplies and who uses one energy carrier, for a choice of components."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    bus: Bus
+    suppliers: tuple[str, ...]
+    users: tuple[str, ...]
+    stores: tuple[str, ...]
+
+    @property
+    def unsupplied(self):
+        """Something needs this energy, but nothing can deliver it."""
+
+        return bool(self.users) and not self.suppliers
+
+    @property
+    def unused(self):
+        """Something delivers this energy, but nothing uses it."""
+
+        return bool(self.suppliers) and not self.users
+
+
+def bus_balance(keys):
+    """For every energy carrier that the chosen components touch: who supplies it and who uses it.
+
+    A source always supplies. A converter supplies only when everything it needs
+    is supplied, so a heat pump without electricity supplies no heat. Storages
+    neither supply nor use: they only move energy in time.
+
+    This is a first look at the structure, drawn from the connections alone. The
+    system check remains the authority; it knows more (for example that a CHP
+    plant cannot run without a use for its heat).
+    """
+
+    for key in keys:
+        get_info(key)                       # refuses unknown components
+
+    # always in the order of the specification, whatever order they were chosen in
+    chosen = [info for info in INFO.values() if info.key in set(keys)]
+
+    def buses(info, directions):
+        return {c.bus for c in info.connections if c.direction in directions}
+
+    supplied, working, changed = set(), set(), True
+    while changed:
+        changed = False
+        for info in chosen:
+            if info.key in working or info.role in ("sink", "storage"):
+                continue
+            if buses(info, ("in",)) <= supplied:           # also true for a source
+                working.add(info.key)
+                supplied |= buses(info, ("out",))
+                changed = True
+
+    balances = {}
+    for bus in BUSES:
+        touched = [i for i in chosen if bus in buses(i, ("in", "out", "both"))]
+        if not touched:
+            continue
+
+        balances[bus] = BusBalance(
+            bus=bus,
+            suppliers=tuple(i.key for i in chosen if i.key in working and bus in buses(i, ("out",))),
+            users=tuple(i.key for i in chosen if bus in buses(i, ("in",))),
+            stores=tuple(i.key for i in chosen if i.role == "storage" and bus in buses(i, ("both",))),
+        )
+
+    return balances
+
+
+# ---------------------------------------------------------------------------
+# the components with a full specification
 # ---------------------------------------------------------------------------
 
 MODE = FieldSpec(
@@ -246,12 +400,12 @@ MODE = FieldSpec(
 
 PV = ComponentSpec(
     key="pv",
-    label="PV system",
-    group="Generation",
+    label=INFO["pv"].label,
+    group=INFO["pv"].group,
     help="A photovoltaic plant. Its output in every hour is its size multiplied "
          "with the generation profile.",
-    role="source",
-    connections=(Connection(bus="electricity", direction="out"),),
+    role=INFO["pv"].role,
+    connections=INFO["pv"].connections,
     fields=(
         MODE,
         FieldSpec(
