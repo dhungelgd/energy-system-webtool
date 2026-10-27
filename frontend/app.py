@@ -1,8 +1,19 @@
 import importlib.util
+import sys
+from pathlib import Path
 
 import streamlit as st
 
-# backend and frontend are installed with "pip install -e ." (see the README)
+# backend and frontend are normally found because the project is installed
+# ("pip install -e ." , see the README) or because the app is started with
+# streamlit_app.py. A deployment whose main file is frontend/app.py starts with
+# this folder only on the import path (and the main file of a deployed app cannot
+# be changed), so the repository folder is added when backend is found there.
+if importlib.util.find_spec("backend") is None:
+    _root = Path(__file__).resolve().parent.parent
+    if (_root / "backend").is_dir():
+        sys.path.insert(0, str(_root))
+
 if importlib.util.find_spec("backend") is None:
     st.error(
         "The project is not installed in this Python environment. "
