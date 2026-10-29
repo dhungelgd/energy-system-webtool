@@ -7,7 +7,7 @@ import pytest
 from backend.blocks import BLOCKS
 from backend.component_specs import INFO
 from backend.scenario_v2 import ScenarioV2
-from backend.templates import TEMPLATES, new_component
+from backend.templates import CARRIER_LABELS, TEMPLATES, carriers_for, new_component
 from tests.v1_support import OTHER_V1_KEYS, to_percent
 
 
@@ -143,3 +143,32 @@ def test_every_setting_of_the_streamlit_form_is_converted(key):
 def test_the_default_mode_is_fixed_as_in_the_streamlit_interface():
     for key in ("pv", "wind", "battery", "heat_storage", "gas_boiler", "heating_rod", "chp", "heat_pump"):
         assert copy.deepcopy(TEMPLATES[key].defaults["capacity"])["mode"] == "fixed"
+
+
+# ---------------------------------------------------------------------------
+# the carriers of a set of components
+# ---------------------------------------------------------------------------
+
+def carrier_ids(*keys):
+    return [carrier["id"] for carrier in carriers_for([new_component(key) for key in keys])]
+
+
+def test_the_carriers_follow_the_components():
+    assert carrier_ids("demand", "grid") == ["electricity"]
+    assert carrier_ids("heat_demand", "gas_import", "gas_boiler") == ["heat", "gas"]
+
+
+def test_the_carriers_come_in_the_usual_order_whatever_order_the_components_come_in():
+    assert carrier_ids("gas_boiler", "heat_demand", "demand") == ["electricity", "heat", "gas"]
+    assert carrier_ids("demand", "heat_demand", "gas_boiler") == ["electricity", "heat", "gas"]
+
+
+def test_a_carrier_that_nothing_uses_is_left_out_and_nothing_gives_no_carrier():
+    assert "gas" not in carrier_ids("demand", "heat_demand", "heat_pump")
+    assert carriers_for([]) == []
+
+
+def test_the_carriers_have_readable_labels():
+    assert carriers_for([new_component("gas_boiler")]) == [
+        {"id": "heat", "label": "Heat"}, {"id": "gas", "label": "Gas"}]
+    assert set(CARRIER_LABELS) == {"electricity", "heat", "gas"}

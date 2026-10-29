@@ -142,8 +142,8 @@ def test_the_components_groups_and_names_match_the_streamlit_registry():
         assert info.label.lower() == UI_REGISTRY[key]["label"].lower(), key
 
 
-def test_the_order_is_the_same_as_in_the_streamlit_interface():
-    from frontend_nicegui.selection import components_by_group
+def test_the_order_of_the_table_is_the_order_of_the_groups():
+    from backend.system_templates import components_by_group
 
     assert list(INFO) == [key for keys in components_by_group().values() for key in keys]
 

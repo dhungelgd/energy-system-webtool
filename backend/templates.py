@@ -21,7 +21,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict
 
 from backend.component_specs import INFO
-from backend.scenario_v2 import Component, Connection
+from backend.scenario_v2 import BUILT_IN_CARRIERS, Component, Connection
 
 
 class Link(BaseModel):
@@ -216,3 +216,15 @@ def new_component(template_key, component_id=None, name=None):
         connections=[Connection(carrier=c.bus, direction=c.direction) for c in info.connections],
         blocks=blocks,
     )
+
+CARRIER_LABELS = {"electricity": "Electricity", "heat": "Heat", "gas": "Gas"}
+
+def carriers_for(components):
+    """The built-in carriers that the components connect to, as the list a scenario needs.
+
+    In the usual order (electricity, heat, gas); a carrier that no component uses is left out.
+    """
+
+    used = {connection.carrier for component in components for connection in component.connections}
+
+    return [{"id": carrier, "label": CARRIER_LABELS[carrier]} for carrier in BUILT_IN_CARRIERS if carrier in used]
