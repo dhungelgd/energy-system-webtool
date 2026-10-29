@@ -29,3 +29,7 @@ dev = ["pytest", "pytest-asyncio"]
 
 [tool.setuptools.packages.find]
 include = ["backend*", "frontend*", "frontend_nicegui*"]
+
+# the texts for the user (English and German) are data files next to the code
+[tool.setuptools.package-data]
+"backend.i18n" = ["*.json"]

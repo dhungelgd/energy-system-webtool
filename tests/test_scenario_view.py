@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.i18n import ENGLISH, Msg, Translator
 from backend.scenario_v2 import ScenarioV2
 from examples.make_examples_v2 import EXAMPLES
 from frontend_nicegui.scenario_view import (
@@ -106,7 +107,7 @@ def test_the_error_is_a_value_error():
 # ---------------------------------------------------------------------------
 
 def test_the_period_is_described():
-    assert describe_period(example("pv_and_grid")) == "24 hourly steps (1 days) from 01.01.2021 00:00"
+    assert describe_period(example("pv_and_grid")) == "24 hourly steps (1 day) from 01.01.2021 00:00"
 
 
 def test_a_period_that_is_not_whole_days():
@@ -241,3 +242,120 @@ def test_a_cop_series_in_the_conversion_of_a_heat_pump_is_found():
     )
 
     assert series_rows(found)[0]["used_by"] == "Heat pump"
+
+# ---------------------------------------------------------------------------
+# the period: plural forms
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("steps, expected", [
+    (1, "1 hourly step (0.0417 days) from 01.01.2021 00:00"),
+    (24, "24 hourly steps (1 day) from 01.01.2021 00:00"),
+    (36, "36 hourly steps (1.5 days) from 01.01.2021 00:00"),
+    (168, "168 hourly steps (7 days) from 01.01.2021 00:00"),
+    (8760, "8760 hourly steps (365 days) from 01.01.2021 00:00"),
+])
+def test_the_period_has_the_right_singular_and_plural(steps, expected):
+    assert describe_period(scenario(time={"steps": steps})) == expected
+
+
+@pytest.mark.parametrize("steps, expected", [
+    (1, "1 Stundenschritt (0,0417 Tage) ab 01.01.2021 00:00"),
+    (24, "24 Stundenschritte (1 Tag) ab 01.01.2021 00:00"),
+    (36, "36 Stundenschritte (1,5 Tage) ab 01.01.2021 00:00"),
+    (8760, "8760 Stundenschritte (365 Tage) ab 01.01.2021 00:00"),
+])
+def test_the_period_in_german(steps, expected):
+    assert describe_period(scenario(time={"steps": steps}), Translator("de")) == expected
+
+
+# ---------------------------------------------------------------------------
+# the rows in German
+# ---------------------------------------------------------------------------
+
+DE = Translator("de")
+
+
+def test_component_rows_in_german():
+    rows = component_rows(example("two_pv_systems"), DE)
+
+    assert rows[0] == {"component": "Strombedarf", "type": "Strombedarf", "mode": "-", "size": "-"}
+    assert rows[1]["component"] == "Stromnetz"
+    assert rows[2] == {"component": "PV south roof", "type": "PV-Anlage", "mode": "fest", "size": "60 kW"}
+    assert rows[3]["mode"] == "Investition" and rows[3]["size"] == "bis zu 40 kW"
+
+
+def test_a_name_that_somebody_chose_stays_as_it_is_and_a_standard_name_follows_the_language():
+    rows = {row["component"] for row in component_rows(example("two_pv_systems"), DE)}
+
+    assert "PV south roof" in rows and "Electricity demand" not in rows and "Strombedarf" in rows
+
+
+def test_the_unit_of_a_storage_and_the_words_for_sizes_that_are_not_filled_in_in_german():
+    rows = {row["component"]: row for row in component_rows(example("hydrogen_chain"), DE)}
+    found = scenario([
+        {**capacity_component("source", {"capacity": {"mode": "fixed"}}), "id": "a", "name": "A"},
+        {**capacity_component("source", {"capacity": {"mode": "invest"}}), "id": "b", "name": "B"},
+        {**capacity_component("source", {"capacity": {"mode": "fixed", "capacity": 12.5}}), "id": "c", "name": "C"},
+    ])
+
+    assert rows["Electrolyser"]["type"] == "Eigene Komponente"
+    assert rows["Hydrogen tank"]["size"] == "bis zu 2000 kWh"
+    assert [row["size"] for row in component_rows(found, DE)] == [
+        "nicht festgelegt", "keine Obergrenze", "12,5 kW"]
+
+
+def test_series_rows_in_german():
+    shared = scenario(
+        [{**capacity_component("source", {"profile": {"series": "sun"}}), "id": "a", "name": "Roof A"}],
+        series={"sun": {"values": [0.25, 3.5]}, "spare": {"values": [1.0]}},
+    )
+    rows = {row["series"]: row for row in series_rows(shared, DE)}
+
+    assert rows["sun"]["min"] == "0,25" and rows["sun"]["max"] == "3,5"
+    assert rows["spare"]["used_by"] == "nichts"
+
+
+def test_the_series_of_the_examples_name_their_users_in_german():
+    rows = {row["series"]: row for row in series_rows(example("pv_and_grid"), DE)}
+
+    assert rows["electricity_demand"]["used_by"] == "Strombedarf"
+    assert rows["pv_profile"]["used_by"] == "PV-Anlage"
+
+
+def test_the_rows_in_english_are_the_default():
+    assert component_rows(example("pv_and_grid")) == component_rows(example("pv_and_grid"), ENGLISH)
+
+
+# ---------------------------------------------------------------------------
+# file errors are messages for the reader
+# ---------------------------------------------------------------------------
+
+def test_a_file_error_carries_its_message_for_the_page_and_its_english_text():
+    with pytest.raises(ScenarioFileError) as error:
+        load_scenario(b"this is not json")
+
+    assert error.value.msg == Msg("file_error.json")
+    assert str(error.value) == ENGLISH("file_error.json")
+    assert Translator("de").message(error.value.msg).startswith("Diese Datei ist kein gültiges JSON")
+
+
+def test_a_damaged_file_names_the_place_in_the_message():
+    with pytest.raises(ScenarioFileError) as error:
+        load_scenario(json.dumps({"components": ["demand", "ufo"]}).encode())
+
+    assert error.value.msg.key == "file_error.damaged"
+    assert error.value.msg.params["where"].startswith("components")
+    assert "(components" in Translator("de").message(error.value.msg)
+
+
+@pytest.mark.parametrize("content, key", [
+    (json.dumps({"objective": 72.0, "buses": {}}), "file_error.result"),
+    (json.dumps({"schema_version": 99}), "file_error.newer"),
+    (json.dumps({"schema_version": 1, "components": ["demand"]}), "file_error.old"),
+])
+def test_every_kind_of_file_problem_has_its_own_message(content, key):
+    with pytest.raises(ScenarioFileError) as error:
+        load_scenario(content.encode())
+
+    assert error.value.msg == Msg(key)
+    assert Translator("de")(key) != ENGLISH(key)

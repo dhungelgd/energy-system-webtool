@@ -52,7 +52,8 @@ async def test_the_page_starts_with_the_defaults_of_a_scenario(user: User):
     await user.open("/")
 
     await user.should_see("Your scenario")
-    assert field(user, "draft-name").value == DEFAULT_NAME
+    assert field(user, "draft-name").value == ""  # not named yet ...
+    assert field(user, "draft-name").props["placeholder"] == DEFAULT_NAME  # ... and it says what then
     assert field(user, "draft-start").value == "2021-01-01"
     assert field(user, "draft-steps").value == 8760
     await user.should_see("Period: 8760 hourly steps (365 days) from 01.01.2021 00:00")
@@ -72,7 +73,7 @@ async def test_typing_the_steps_changes_the_period(user: User):
 
 
 @pytest.mark.parametrize("marker, text", [
-    ("steps-24", "24 hourly steps (1 days)"),
+    ("steps-24", "24 hourly steps (1 day)"),
     ("steps-168", "168 hourly steps (7 days)"),
     ("steps-8760", "8760 hourly steps (365 days)"),
 ])
@@ -96,7 +97,7 @@ async def test_steps_that_do_not_fit_keep_the_old_period_and_say_why(user: User,
     await type_into(user, "draft-steps", text)
     await settle()
 
-    assert period_text(user) == "Period: 24 hourly steps (1 days) from 01.01.2021 00:00"
+    assert period_text(user) == "Period: 24 hourly steps (1 day) from 01.01.2021 00:00"
     assert field(user, "draft-steps").error == STEPS_HINT
 
 

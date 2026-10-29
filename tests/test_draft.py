@@ -33,7 +33,7 @@ def messages(draft):
 def test_a_new_draft_is_empty_and_has_the_defaults_of_a_scenario():
     draft = ScenarioDraft()
 
-    assert (draft.name, draft.start, draft.steps) == (DEFAULT_NAME, date(2021, 1, 1), 8760)
+    assert (draft.name, draft.start, draft.steps) == ("", date(2021, 1, 1), 8760)
     assert len(draft) == 0 and draft.components() == []
 
 
@@ -47,13 +47,22 @@ def test_the_name_is_trimmed():
     assert draft.name == "Bakery Meier"
 
 
-def test_a_blank_name_becomes_the_default_name():
-    draft = ScenarioDraft()
+def test_a_blank_name_means_not_named_yet_and_the_scenario_gets_the_default_name():
+    draft = ScenarioDraft(name="Bakery")
     draft.name = "   "
 
-    assert draft.name == DEFAULT_NAME
+    assert draft.name == ""
+    assert draft.scenario().name == DEFAULT_NAME
     draft.name = None
-    assert draft.name == DEFAULT_NAME
+    assert draft.name == "" and draft.scenario().name == DEFAULT_NAME
+
+
+def test_the_default_name_can_be_given_in_the_language_of_the_reader():
+    draft = ScenarioDraft()
+
+    assert draft.scenario(default_name="Unbenanntes Szenario").name == "Unbenanntes Szenario"
+    draft.name = "Bakery"
+    assert draft.scenario(default_name="Unbenanntes Szenario").name == "Bakery"
 
 
 def test_a_name_that_is_too_long_is_refused_and_the_old_one_stays():

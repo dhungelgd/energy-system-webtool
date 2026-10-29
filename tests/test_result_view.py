@@ -3,6 +3,7 @@
 import pytest
 
 from backend.results import KeyFigure, ScenarioResult, SolverInfo, Table
+from backend.i18n import Translator
 from frontend_nicegui.result_view import format_value, headline_cards, solver_text
 
 
@@ -61,4 +62,47 @@ def test_the_solver_line():
 
     assert solver_text(result(solver=done)) == "Solver: optimal in 2.7 s"
     assert solver_text(result(solver=SolverInfo(status="ok", termination="optimal"))) == "Solver: optimal"
+    assert solver_text(result()) == "Solver: no information"
+
+# ---------------------------------------------------------------------------
+# in German
+# ---------------------------------------------------------------------------
+
+DE = Translator("de")
+
+
+@pytest.mark.parametrize("value, unit, expected", [
+    (72.0, "€", "72 €"),
+    (19710000.4, "€", "19.710.000 €"),
+    (80.2, "%", "80 %"),
+    (75.14, "kW", "75,1 kW"),
+    (9999.0, "kWh", "9.999 kWh"),
+    (65700000.0, "kWh", "65.700,0 MWh"),
+    (3.5, "h", "3,50 h"),
+    (None, "€", "-"),
+])
+def test_values_in_german_have_a_decimal_comma_and_dots_between_the_thousands(value, unit, expected):
+    assert format_value(value, unit, DE) == expected
+
+
+def test_the_headline_cards_take_the_numbers_of_the_language_and_keep_the_backend_labels():
+    figure = KeyFigure(label="System cost", value=1234.5, unit="€", help="The objective.")
+
+    cards = headline_cards(result(figures=[figure]), DE)
+
+    assert cards == [{"label": "System cost", "value": "1.234 €", "help": "The objective."}]
+
+
+def test_the_solver_line_in_german():
+    solved = result(SolverInfo(status="ok", termination="optimal", seconds=1.5))
+
+    assert solver_text(solved, DE) == "Solver: optimal in 1,5 s"
+    assert solver_text(result(SolverInfo(status="ok", termination="optimal")), DE) == "Solver: optimal"
+    assert solver_text(result(), DE) == "Solver: keine Angabe"
+
+
+def test_the_solver_line_in_english_is_the_default():
+    solved = result(SolverInfo(status="ok", termination="optimal", seconds=1.5))
+
+    assert solver_text(solved) == "Solver: optimal in 1.5 s"
     assert solver_text(result()) == "Solver: no information"

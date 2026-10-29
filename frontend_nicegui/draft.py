@@ -68,7 +68,7 @@ def parse_start(value):
 class ScenarioDraft:
     """A scenario in the making: a name, a period and the chosen components."""
 
-    def __init__(self, name=DEFAULT_NAME, start=DEFAULT_START, steps=DEFAULT_STEPS):
+    def __init__(self, name="", start=DEFAULT_START, steps=DEFAULT_STEPS):
         self._components = {}
         self.name = name
         self.start = start
@@ -88,7 +88,7 @@ class ScenarioDraft:
         if len(text) > MAX_NAME_LENGTH:
             raise ValueError(f"The name can have at most {MAX_NAME_LENGTH} characters.")
 
-        self._name = text or DEFAULT_NAME
+        self._name = text
 
     @property
     def start(self):
@@ -158,13 +158,17 @@ class ScenarioDraft:
 
     # ----- what it makes ---------------------------------------------------
 
-    def scenario(self):
-        """A valid ScenarioV2 of the draft (a copy: changing it does not change the draft)."""
+    def scenario(self, default_name=DEFAULT_NAME):
+        """A valid ScenarioV2 of the draft (a copy: changing it does not change the draft).
+
+        A draft that has no name yet gets the default name that is given (in the language
+        of the reader).
+        """
 
         components = [component.model_copy(deep=True) for component in self.components()]
 
         return ScenarioV2(
-            name=self.name,
+            name=self.name or default_name,
             time={"start": datetime.combine(self.start, time.min), "steps": self.steps},
             carriers=carriers_for(components),
             components=components,
