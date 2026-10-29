@@ -1,19 +1,19 @@
 """The NiceGUI interface of the Energy System Web Tool (work in progress).
 
-It uses the same backend as the Streamlit interface: scenario.py, service.py
-and results.py. This file only builds the pages.
+It works on scenarios of layout 2 (scenario_v2.py), through service_v2.py, and shows
+a ScenarioResult (results.py). This file only builds the pages.
 """
 
 import logging
 
 from nicegui import events, run, ui
 
-from backend import service
+from backend import service_v2
+from backend.service import ScenarioError
 from frontend.ui_registry import UI_REGISTRY
 from frontend_nicegui.result_view import headline_cards, solver_text
 from frontend_nicegui.scenario_view import (
     ScenarioFileError,
-    component_labels,
     component_rows,
     describe_period,
     load_scenario,
@@ -32,12 +32,15 @@ logger = logging.getLogger(__name__)
 
 COMPONENT_COLUMNS = [
     {"name": "component", "label": "Component", "field": "component", "align": "left"},
+    {"name": "type", "label": "Type", "field": "type", "align": "left"},
     {"name": "mode", "label": "Mode", "field": "mode", "align": "left"},
     {"name": "size", "label": "Size", "field": "size", "align": "left"},
 ]
 
 SERIES_COLUMNS = [
     {"name": "series", "label": "Time series", "field": "series", "align": "left"},
+    {"name": "unit", "label": "Unit", "field": "unit", "align": "left"},
+    {"name": "used_by", "label": "Used by", "field": "used_by", "align": "left"},
     {"name": "values", "label": "Values", "field": "values"},
     {"name": "empty", "label": "Empty", "field": "empty"},
     {"name": "min", "label": "Smallest", "field": "min"},
@@ -52,7 +55,7 @@ async def solve(scenario):
     one process, so a solve inside it would freeze every page until it is done.
     """
 
-    return await run.cpu_bound(service.run, scenario)
+    return await run.cpu_bound(service_v2.run, scenario)
 
 
 def show_result(result):
@@ -98,7 +101,7 @@ def show_run(scenario):
         try:
             result = await solve(scenario)
 
-        except service.ScenarioError as error:
+        except ScenarioError as error:
             with results:
                 ui.label(f"The optimization could not be completed: {error}").classes(
                     "text-negative").mark("run-error")
@@ -237,7 +240,7 @@ def show_scenario(scenario, file_name):
             ui.label("Time series").classes("font-semibold mt-2")
             ui.table(columns=SERIES_COLUMNS, rows=series_rows(scenario)).props("dense flat").classes("w-full").mark("series")
 
-    findings = service.check(scenario, labels=component_labels())
+    findings = service_v2.check(scenario)
     show_findings(findings)
 
     if not any(f.level == "error" for f in findings):
@@ -258,7 +261,7 @@ def home_page():
             ui.label(
                 "Or open a scenario that was saved earlier. A scenario file (JSON) "
                 "holds the components, settings and time series of one energy system. "
-                "Examples are in the folder examples/scenarios."
+                "Examples are in the folder examples/scenarios_v2."
             )
 
             async def open_file(event: events.UploadEventArguments):

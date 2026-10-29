@@ -13,11 +13,11 @@ from nicegui import run  # noqa: E402
 from nicegui.elements.upload_files import SmallFileUpload  # noqa: E402
 from nicegui.testing import User  # noqa: E402
 
-from backend import service  # noqa: E402
 from backend.results import KeyFigure, ScenarioResult, SolverInfo, Table  # noqa: E402
-from backend.scenario import Scenario  # noqa: E402
+from backend.scenario_v2 import ScenarioV2  # noqa: E402
+from backend.service import ScenarioError  # noqa: E402
 
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "scenarios"
+EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "scenarios_v2"
 
 needs_cbc = pytest.mark.skipif(shutil.which("cbc") is None, reason="CBC solver is not installed")
 
@@ -66,14 +66,14 @@ def use_solver(monkeypatch, solver):
 # ---------------------------------------------------------------------------
 
 async def test_a_scenario_without_errors_offers_to_run(user: User):
-    await open_example(user, "grid_only_24h")
+    await open_example(user, "pv_and_grid")
 
     await user.should_see("Run the optimization")
     await user.should_see(marker="run")
 
 
 async def test_a_scenario_with_errors_does_not_offer_to_run(user: User):
-    await open_example(user, "with_problems_24h")
+    await open_example(user, "with_problems")
 
     await user.should_see("Fix the errors above")
     await user.should_not_see(marker="run")
@@ -83,8 +83,8 @@ async def test_a_scenario_with_errors_does_not_offer_to_run(user: User):
 async def test_a_scenario_with_only_warnings_can_be_run(user: User):
     import json
 
-    scenario = json.loads((EXAMPLES / "with_problems_24h.json").read_text(encoding="utf-8"))
-    scenario["series"]["electricity_demand"] = [1.0] * 24
+    scenario = json.loads((EXAMPLES / "with_problems.json").read_text(encoding="utf-8"))
+    scenario["series"]["electricity_demand"]["values"] = [0.01] * 24
 
     await user.open("/")
     upload = user.find(marker="upload").elements.pop()
@@ -102,7 +102,7 @@ async def test_the_headline_figures_are_shown(user: User, monkeypatch):
         return fake_result()
 
     use_solver(monkeypatch, solver)
-    await open_example(user, "grid_only_24h")
+    await open_example(user, "pv_and_grid")
 
     user.find(marker="run").click()
 
@@ -121,13 +121,13 @@ async def test_the_solver_gets_the_scenario_that_was_opened(user: User, monkeypa
         return fake_result()
 
     use_solver(monkeypatch, solver)
-    await open_example(user, "grid_only_24h")
+    await open_example(user, "pv_and_grid")
     user.find(marker="run").click()
     await user.should_see("72 €")
 
     assert len(received) == 1
-    assert isinstance(received[0], Scenario)
-    assert received[0].name == "Grid only, 24 hours"
+    assert isinstance(received[0], ScenarioV2)
+    assert received[0].name == "PV and grid, one day"
 
 
 async def test_the_button_is_blocked_while_it_runs_and_free_again_afterwards(user: User, monkeypatch):
@@ -138,7 +138,7 @@ async def test_the_button_is_blocked_while_it_runs_and_free_again_afterwards(use
         return fake_result()
 
     use_solver(monkeypatch, solver)
-    await open_example(user, "grid_only_24h")
+    await open_example(user, "pv_and_grid")
 
     user.find(marker="run").click()
     await user.should_see("Running the optimization...")
@@ -159,7 +159,7 @@ async def test_pressing_again_replaces_the_old_result(user: User, monkeypatch):
         return fake_result(cost=next(costs))
 
     use_solver(monkeypatch, solver)
-    await open_example(user, "grid_only_24h")
+    await open_example(user, "pv_and_grid")
 
     user.find(marker="run").click()
     await user.should_see("72 €")
@@ -172,10 +172,10 @@ async def test_pressing_again_replaces_the_old_result(user: User, monkeypatch):
 
 async def test_a_problem_found_by_the_optimization_is_explained(user: User, monkeypatch):
     async def solver(scenario):
-        raise service.ScenarioError("the solver found no solution")
+        raise ScenarioError("the solver found no solution")
 
     use_solver(monkeypatch, solver)
-    await open_example(user, "grid_only_24h")
+    await open_example(user, "pv_and_grid")
 
     user.find(marker="run").click()
 
@@ -191,7 +191,7 @@ async def test_an_unexpected_failure_keeps_the_page_alive_and_hides_the_details(
         raise RuntimeError("secret internal detail")
 
     use_solver(monkeypatch, solver)
-    await open_example(user, "grid_only_24h")
+    await open_example(user, "pv_and_grid")
 
     user.find(marker="run").click()
 
@@ -207,15 +207,15 @@ async def test_a_new_file_removes_the_old_result(user: User, monkeypatch):
         return fake_result()
 
     use_solver(monkeypatch, solver)
-    await open_example(user, "grid_only_24h")
+    await open_example(user, "pv_and_grid")
     user.find(marker="run").click()
     await user.should_see("72 €")
 
     upload = user.find(marker="upload").elements.pop()
-    content = (EXAMPLES / "pv_battery_week.json").read_bytes()
+    content = (EXAMPLES / "two_pv_systems.json").read_bytes()
     await upload.handle_uploads([SmallFileUpload("pv.json", "application/json", content)])
 
-    await user.should_see("PV and battery, one week in June")
+    await user.should_see("Two PV systems, one day")
     await user.should_not_see("72 €")
 
 
@@ -234,7 +234,7 @@ async def test_the_processes_are_started_the_safe_way_on_every_system(user: User
 
 @needs_cbc
 async def test_a_real_run_in_another_process_gives_the_hand_calculated_cost(user: User):
-    await open_example(user, "grid_only_24h")
+    await open_example(user, "pv_and_grid")
 
     user.find(marker="run").click()
 
@@ -244,11 +244,19 @@ async def test_a_real_run_in_another_process_gives_the_hand_calculated_cost(user
 
 
 def year_scenario():
-    return Scenario(
-        components=["demand", "grid"],
-        settings={"demand": {"scaling_factor": 100.0},
-                  "grid": {"price_mode": "constant", "variable_costs": 0.3}},
-        series={"electricity_demand": [0.5 + (i % 24) / 48 for i in range(8760)]},
+    # a demand in kW for a whole year, and the grid
+    return ScenarioV2(
+        carriers=[{"id": "electricity", "label": "Electricity"}],
+        components=[
+            {"id": "demand", "name": "Electricity demand", "template": "demand", "kind": "sink",
+             "connections": [{"carrier": "electricity", "direction": "in"}],
+             "blocks": {"demand": {"series": "load", "profile_type": "absolute"}}},
+            {"id": "grid", "name": "Electricity grid", "template": "grid", "kind": "source",
+             "connections": [{"carrier": "electricity", "direction": "out"}],
+             "blocks": {"costs": {"variable_costs": 0.3}}},
+        ],
+        time={"steps": 8760},
+        series={"load": {"unit": "kW", "values": [50.0 + (i % 24) * 2.0 for i in range(8760)]}},
     )
 
 

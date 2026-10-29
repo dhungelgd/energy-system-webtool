@@ -4,14 +4,14 @@ Run it from the repository folder:
 
     python -m examples.make_examples_v2
 
-The three examples are the ones of the design: PV and grid, two PV systems, and a
-hydrogen chain that the user defined. The numbers are invented.
+The examples: PV and grid, two PV systems, a hydrogen chain that the user defined,
+and a scenario with problems, to see what the system check says. The numbers are invented.
 """
 
 from pathlib import Path
 
 from backend.scenario_v2 import ScenarioV2
-from examples.make_examples import day_shape, sun_shape
+from examples.shapes import day_shape, sun_shape
 
 FOLDER = Path(__file__).resolve().parent / "scenarios_v2"
 
@@ -84,6 +84,24 @@ def two_pv_systems():
     return ScenarioV2(**scenario)
 
 
+def with_problems():
+    """The same system with mistakes: to see what the system check says.
+
+    The demand series is too short (an error), the PV system is fixed and nothing can
+    take its surplus (a warning), and its profile is above 1 (a warning).
+    """
+
+    scenario = pv_and_grid().model_dump()
+    scenario["name"] = "With problems, one day"
+
+    pv = next(c for c in scenario["components"] if c["id"] == "pv")
+    pv["blocks"]["capacity"] = {"mode": "fixed", "capacity": 5.0}
+
+    scenario["series"]["electricity_demand"]["values"] = daily_shares()[:10]
+    scenario["series"]["pv_profile"]["values"] = [3 * sun_shape(h) for h in HOURS]
+    return ScenarioV2(**scenario)
+
+
 def hydrogen_chain():
     """A chain that the user defined: electrolyser, hydrogen tank and a hydrogen demand."""
 
@@ -123,6 +141,7 @@ EXAMPLES = {
     "pv_and_grid": pv_and_grid,
     "two_pv_systems": two_pv_systems,
     "hydrogen_chain": hydrogen_chain,
+    "with_problems": with_problems,
 }
 
 

@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.scenario_v2 import ScenarioV2
+from backend.scenario import Scenario
 from examples.make_examples_v2 import EXAMPLES, FOLDER
 
 EL = {"id": "electricity", "label": "Electricity"}
@@ -270,7 +271,7 @@ def test_an_older_layout_says_it_has_to_be_converted():
 
 
 def test_a_version_1_file_is_not_taken_for_a_version_2_file():
-    v1 = (Path(__file__).resolve().parent.parent / "examples" / "scenarios" / "grid_only_24h.json").read_text(encoding="utf-8")
+    v1 = Scenario(components=["demand"]).model_dump_json()
 
     with pytest.raises(ValidationError, match="layout 1 scenario"):
         ScenarioV2.model_validate_json(v1)

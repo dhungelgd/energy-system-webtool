@@ -1,4 +1,4 @@
-"""What the NiceGUI pages show about a scenario.
+"""What the NiceGUI pages show about a scenario (layout 2).
 
 No NiceGUI code in here, only the decisions about what to show and how to word
 it, so that it is easy to test.
@@ -8,25 +8,20 @@ import json
 
 from pydantic import ValidationError
 
-from backend.scenario import Scenario
-from frontend.ui_registry import UI_REGISTRY
+from backend.blocks import series_references
+from backend.component_specs import INFO
+from backend.scenario_v2 import SCHEMA_VERSION, ScenarioV2
 
 
 class ScenarioFileError(ValueError):
     """The file cannot be opened as a scenario. The message is for the user."""
 
 
-def component_labels():
-    """Readable names of the components, e.g. {"pv": "PV System"}."""
-
-    return {key: spec["label"] for key, spec in UI_REGISTRY.items()}
-
-
 def load_scenario(content):
     """Read the bytes of a scenario file. Raises ScenarioFileError with a clear text."""
 
     try:
-        return Scenario.model_validate_json(content)
+        return ScenarioV2.model_validate_json(content)
 
     except ValidationError as error:
         first = error.errors()[0]
@@ -42,20 +37,49 @@ def load_scenario(content):
                 "in the Streamlit interface under 'Open a saved result'."
             ) from error
 
+        problem = _version_problem(content)
+        if problem:
+            raise ScenarioFileError(problem) from error
+
         where = ".".join(str(part) for part in first["loc"]) or "file"
+        message = first["msg"].removeprefix("Value error, ")
         raise ScenarioFileError(
             "This file is not a scenario saved by this tool, or it is damaged "
-            f"({where}: {first['msg']})."
+            f"({where}: {message})."
         ) from error
 
 
-def _looks_like_a_result(content):
+def _data(content):
     try:
         data = json.loads(content)
     except ValueError:
-        return False
+        return None
 
-    return isinstance(data, dict) and "objective" in data and "buses" in data
+    return data if isinstance(data, dict) else None
+
+
+def _looks_like_a_result(content):
+    data = _data(content)
+
+    return data is not None and "objective" in data and "buses" in data
+
+
+def _version_problem(content):
+    """A sentence if the file was saved in an older or newer format, else None."""
+
+    data = _data(content)
+    version = data.get("schema_version") if data else None
+
+    if not isinstance(version, int):
+        return None
+    if version > SCHEMA_VERSION:
+        return (
+            "This scenario was saved with a newer version of the tool. "
+            "Please update the tool to open it."
+        )
+    if version < SCHEMA_VERSION:
+        return "This scenario file is in an old format that this version cannot open."
+    return None
 
 
 def describe_period(scenario):
@@ -67,32 +91,35 @@ def describe_period(scenario):
     return f"{time.steps} hourly steps ({days} days) from {time.start:%d.%m.%Y %H:%M}"
 
 
-def _size_text(mode, settings):
+def _size_text(kind, mode, capacity):
+    unit = "kWh" if kind == "storage" else "kW"
+
     if mode == "fixed":
-        capacity = settings.get("capacity")
-        return f"{capacity:g}" if capacity else "not set"
+        size = capacity.get("capacity")
+        return f"{size:g} {unit}" if size else "not set"
 
     if mode == "invest":
-        maximum = settings.get("maximum")
-        return f"up to {maximum:g}" if maximum else "no upper limit"
+        maximum = capacity.get("maximum")
+        return f"up to {maximum:g} {unit}" if maximum else "no upper limit"
 
     return "-"
 
 
 def component_rows(scenario):
-    """One row per component: readable name, mode (fixed or invest), size."""
+    """One row per component: its name, what it is, mode (fixed or invest), size."""
 
-    labels = component_labels()
     rows = []
 
-    for key in scenario.components:
-        settings = scenario.settings.get(key, {})
-        mode = settings.get("mode")
+    for component in scenario.components:
+        capacity = component.blocks.get("capacity")
+        mode = (capacity.get("mode") or "fixed") if capacity is not None else None
+        info = INFO.get(component.template)
 
         rows.append({
-            "component": labels.get(key, key),
+            "component": component.name,
+            "type": info.label if info else "Custom component",
             "mode": mode or "-",
-            "size": _size_text(mode, settings),
+            "size": _size_text(component.kind, mode, capacity or {}),
         })
 
     return rows
@@ -103,17 +130,25 @@ def _number(value):
 
 
 def series_rows(scenario):
-    """One row per time series: how many values, how many empty, smallest, largest."""
+    """One row per time series: its unit, who uses it, how many values, how many empty, smallest, largest."""
+
+    users = {}
+    for component in scenario.components:
+        for block, values in component.blocks.items():
+            for series_id in series_references(block, values):
+                users.setdefault(series_id, []).append(component.name)
 
     rows = []
 
-    for key, values in scenario.series.items():
-        numbers = [value for value in values if value is not None]
+    for series_id, data in scenario.series.items():
+        numbers = [value for value in data.values if value is not None]
 
         rows.append({
-            "series": key,
-            "values": len(values),
-            "empty": len(values) - len(numbers),
+            "series": series_id,
+            "unit": data.unit or "-",
+            "used_by": ", ".join(users.get(series_id, [])) or "nothing",
+            "values": len(data.values),
+            "empty": len(data.values) - len(numbers),
             "min": _number(min(numbers)) if numbers else "-",
             "max": _number(max(numbers)) if numbers else "-",
         })

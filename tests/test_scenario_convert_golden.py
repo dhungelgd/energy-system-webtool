@@ -6,7 +6,7 @@ import pytest
 from backend.scenario import Scenario
 from backend.scenario_convert import scenario_to_v1
 from backend.service import run
-from examples.make_examples import day_shape, sun_shape
+from examples.shapes import day_shape, sun_shape
 from examples.make_examples_v2 import EXAMPLES
 from tests.helpers import needs_cbc
 from tests.v1_support import scenario_from_v1
