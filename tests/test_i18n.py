@@ -183,6 +183,20 @@ def test_a_message_is_worded_in_the_language_of_the_reader():
     assert ENGLISH.message(msg).startswith("The optimization could not")
 
 
+def test_a_decimal_number_in_a_message_is_written_the_way_of_the_language():
+    msg = Msg("form.hint.range", min=0.5, max=100.0)
+
+    assert ENGLISH.message(msg) == "Enter a number from 0.5 to 100."
+    assert Translator("de").message(msg) == "Geben Sie eine Zahl von 0,5 bis 100 ein."
+
+
+def test_texts_and_whole_numbers_in_a_message_stay_as_they_are():
+    assert ENGLISH.message(Msg("run.failed", reason="took 1.5 s")) == (
+        "The optimization could not be completed: took 1.5 s")
+    assert Translator("de").message(Msg("hint.steps", min=1, max="8.784")) == (
+        "Geben Sie eine ganze Zahl von 1 bis 8.784 ein.")
+
+
 def test_messages_can_be_compared():
     assert Msg("a", x=1) == Msg("a", x=1)
     assert Msg("a", x=1) != Msg("a", x=2) and Msg("a") != Msg("b")
@@ -258,7 +272,7 @@ def test_the_link_wins_over_the_browser(requested, header, expected):
 SOURCES = sorted((ROOT / "backend").rglob("*.py")) + sorted((ROOT / "frontend_nicegui").rglob("*.py"))
 
 # keys that are built from a name in the code (component.<key>.label, group.<slug>, ...)
-DYNAMIC_FAMILIES = ("component.", "group.", "template.", "row.mode.")
+DYNAMIC_FAMILIES = ("component.", "group.", "template.", "row.mode.", "block.", "field.")
 
 
 def literal_keys_in_calls():

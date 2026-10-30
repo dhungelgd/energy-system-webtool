@@ -75,7 +75,12 @@ class Translator:
         return self(f"{key}.{'one' if count == 1 else 'other'}", **params)
 
     def message(self, msg):
-        return self(msg.key, **msg.params)
+        """The text of a Msg. A decimal number in its parameters is written the way of the language."""
+
+        params = {name: self.number(value) if isinstance(value, float) else value
+                  for name, value in msg.params.items()}
+
+        return self(msg.key, **params)
 
     # ----- numbers ---------------------------------------------------------
 

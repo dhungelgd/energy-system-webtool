@@ -28,6 +28,8 @@ from frontend_nicegui.draft import (
     parse_start,
     parse_steps,
 )
+from frontend_nicegui.form_view import TYPING_DELAY_MS, render_component_form
+from frontend_nicegui.forms import has_form
 from frontend_nicegui.markers import slug
 from frontend_nicegui.names import component_label, group_label, template_label
 from frontend_nicegui.page_state import PageState
@@ -35,8 +37,6 @@ from frontend_nicegui.result_view import headline_cards, solver_text
 from frontend_nicegui.scenario_view import component_rows, describe_period, series_rows
 
 TITLE = "Energy System Web Tool"
-
-TYPING_DELAY_MS = 300           # wait until the typing pauses, so that "24" does not check "2" first
 
 logger = logging.getLogger(__name__)
 
@@ -229,15 +229,23 @@ def home_page():
 
         show_findings(service_v2.check(scenario), tr, "findings.title_draft", "draft-findings")
 
+    @ui.refreshable
+    def settings():
+        for component in state.draft.components():
+            if has_form(component):
+                render_component_form(component, state.tr, on_change=overview.refresh)
+
     def show_selection_in_boxes():
         for key, box in boxes.items():
             box.value = state.draft.is_selected(key)
+        settings.refresh()
         overview.refresh()
 
     def on_tick(key, event):
         # also called when a template sets a box; then nothing is left to do
         if state.draft.is_selected(key) != event.value:
             state.draft.set(key, event.value)
+            settings.refresh()
             overview.refresh()
 
     def use_template(name):
@@ -397,6 +405,7 @@ def home_page():
 
             scenario_card()
             builder_card()
+            settings()
             overview()
             open_card()
             details()
