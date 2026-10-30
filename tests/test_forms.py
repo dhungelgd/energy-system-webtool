@@ -1,5 +1,6 @@
 """The forms of the components: what they show and what an input does (no NiceGUI needed)."""
 
+import itertools
 import random
 
 import pytest
@@ -7,8 +8,9 @@ import pytest
 from backend.blocks import BLOCKS
 from backend.component_specs import FieldSpec
 from backend.i18n import ENGLISH, Msg, Translator, catalog
+from backend.scenario_convert import engine_gaps, scenario_to_v1
 from backend.scenario_v2 import Component
-from backend.templates import new_component
+from backend.templates import TEMPLATES, new_component
 from frontend_nicegui.draft import ScenarioDraft
 from frontend_nicegui.forms import (
     FORMS,
@@ -49,13 +51,28 @@ def invest(component):
 # which components have a form
 # ---------------------------------------------------------------------------
 
-def test_the_pv_system_has_a_form_for_its_size():
-    assert FORMS == {"pv": ("capacity",)}
+
+def test_these_components_have_a_form_and_these_settings_are_in_it():
+    assert FORMS == {
+        "pv": {"capacity": None},
+        "wind": {"capacity": None},
+        "demand": {"demand": None},
+        "heat_demand": {"demand": None},
+        "grid": {"costs": ("variable_costs",)},
+        "grid_feedin": {"costs": ("revenue",)},
+        "gas_import": {"costs": ("variable_costs",)},
+    }
+
+
+def test_the_blocks_of_a_form():
     assert has_form(pv()) and form_blocks(pv()) == ("capacity",)
+    assert form_blocks(new_component("grid")) == ("costs",)
+    assert form_blocks(new_component("demand")) == ("demand",)
 
 
-def test_a_component_without_a_form_has_no_blocks_to_draw():
-    assert not has_form(new_component("demand")) and form_blocks(new_component("demand")) == ()
+@pytest.mark.parametrize("key", ["battery", "heat_storage", "gas_boiler", "heating_rod", "chp", "heat_pump"])
+def test_a_component_without_a_form_yet_has_no_blocks_to_draw(key):
+    assert not has_form(new_component(key)) and form_blocks(new_component(key)) == ()
 
 
 # ---------------------------------------------------------------------------
@@ -399,3 +416,215 @@ def test_the_form_of_every_block_can_be_made_in_both_languages(block_name):
     for en, de in zip(english, german):
         assert en.key == de.key and en.label and de.label and en.label != de.label
         assert not de.label.startswith("field.")          # a text that is missing would show its key
+
+
+# ---------------------------------------------------------------------------
+# the forms of the other components, with their own words
+# ---------------------------------------------------------------------------
+
+def fields_of(template, tr=ENGLISH):
+    component = new_component(template)
+    return {f.key: f for block in form_blocks(component) for f in form_fields(component, block, tr)}
+
+
+def test_the_demand_asks_for_the_profile_and_the_annual_demand():
+    fields = fields_of("demand")
+
+    assert list(fields) == ["profile_type", "annual_demand"]
+    assert fields["profile_type"].kind == "choice" and fields["profile_type"].value == "annual_share"
+    assert (fields["annual_demand"].label, fields["annual_demand"].unit) == ("Annual electricity demand", "kWh per year")
+    assert fields["annual_demand"].value == 30000.0
+    assert fields["annual_demand"].hint == Msg("form.hint.min", min=0.0)
+
+
+def test_the_heat_demand_says_heat():
+    fields = fields_of("heat_demand")
+
+    assert fields["annual_demand"].label == "Annual heat demand" and fields["annual_demand"].value == 90000.0
+    assert "heat" in fields["annual_demand"].help
+
+
+def test_a_demand_that_is_given_in_kw_has_no_annual_demand():
+    component = new_component("demand")
+
+    set_value(component, "demand", "profile_type", "absolute")
+
+    assert [f.key for f in form_fields(component, "demand")] == ["profile_type"]
+    assert component.blocks["demand"]["annual_demand"] == 30000.0                       # hidden, not lost
+
+
+def test_the_grid_asks_for_the_price_of_electricity_and_not_for_variable_costs():
+    fields = fields_of("grid")
+
+    assert list(fields) == ["variable_costs"]
+    price = fields["variable_costs"]
+    assert (price.label, price.unit, price.value) == ("Electricity price", "€ per kWh", 0.3)
+    assert price.help == "What one kWh from the grid costs."
+    assert price.minimum == 0 and price.step == 0.01
+
+
+def test_the_feed_in_asks_for_the_tariff_and_the_gas_import_for_the_gas_price():
+    assert [(f.label, f.value) for f in fields_of("grid_feedin").values()] == [("Feed-in tariff", 0.078)]
+    assert list(fields_of("grid_feedin")) == ["revenue"]
+    assert [(f.label, f.value) for f in fields_of("gas_import").values()] == [("Gas price", 0.1)]
+    assert list(fields_of("gas_import")) == ["variable_costs"]
+
+
+def test_a_component_only_shows_the_settings_of_its_block_that_the_engine_reads():
+    assert [f.key for f in BLOCKS["costs"].fields] == ["variable_costs", "revenue"]       # the block has both ...
+    assert "revenue" not in fields_of("grid") and "variable_costs" not in fields_of("grid_feedin")   # ... a form one
+
+
+def test_the_german_words_of_these_forms():
+    assert fields_of("grid", DE)["variable_costs"].label == "Strompreis"
+    assert fields_of("grid", DE)["variable_costs"].unit == "€ pro kWh"
+    assert fields_of("grid_feedin", DE)["revenue"].label == "Einspeisevergütung"
+    assert fields_of("gas_import", DE)["variable_costs"].label == "Gaspreis"
+    assert fields_of("demand", DE)["annual_demand"].label == "Jahresstrombedarf"
+    assert fields_of("heat_demand", DE)["annual_demand"].label == "Jahreswärmebedarf"
+    assert fields_of("demand", DE)["annual_demand"].unit == "kWh pro Jahr"
+
+
+def test_the_wind_turbine_has_the_form_of_the_pv_system_with_its_own_help():
+    wind, solar = fields_of("wind"), fields_of("pv")
+
+    assert list(wind) == list(solar)
+    assert wind["capacity"].help == "The rated power of the wind turbine."
+    assert solar["capacity"].help == "The installed peak power of the plant."
+    assert wind["capacity"].label == solar["capacity"].label == "Installed size"        # no words of its own: the general ones
+
+
+def test_a_text_of_its_own_belongs_to_a_setting_that_the_form_of_that_component_shows():
+    own = [key for key in EN_CATALOG if "@" in key]
+
+    assert len(own) >= 11
+    for key in own:
+        generic, template = key.split("@")
+        _, block, setting, *_ = generic.split(".")
+        shown = FORMS[template][block]
+        assert generic in EN_CATALOG and key in DE_CATALOG, key
+        assert shown is None or setting in shown, key
+
+
+def test_the_help_of_the_size_choice_says_what_a_fixed_size_means_for_the_costs():
+    help_text = field_of(pv(), "mode").help
+
+    assert "the cost of the plant is not part of the system cost" in help_text
+    assert "nicht Teil der Systemkosten" in field_of(pv(), "mode", DE).help
+
+
+# ---------------------------------------------------------------------------
+# the forms and the engine agree
+# ---------------------------------------------------------------------------
+
+SPECIAL = {("demand", "profile_type"), ("demand", "annual_demand")}          # read by the adapter, not a plain link
+
+
+def read_by_the_engine(template):
+    """The settings of a component that the adapter to the engine reads (the ones with a name of their own)."""
+
+    plain = {(link.block, link.field) for link in TEMPLATES[template].links if "." not in link.field}
+
+    return plain | (SPECIAL if template in ("demand", "heat_demand") else set())
+
+
+def shown_in_some_mode(template):
+    """Every setting that the form of a component shows for some choice of the choices."""
+
+    component = new_component(template)
+    seen = set()
+
+    for block in form_blocks(component):
+        choices = [spec for spec in BLOCKS[block].fields if spec.kind == "choice"]
+        for picks in itertools.product(*[spec.options for spec in choices]):
+            for spec, pick in zip(choices, picks):
+                set_value(component, block, spec.key, pick)
+            seen |= {(block, f.key) for f in form_fields(component, block)}
+
+    return seen
+
+
+@pytest.mark.parametrize("template", list(FORMS))
+def test_a_form_shows_exactly_the_settings_that_the_engine_reads(template):
+    # nothing the engine needs is hidden, and nothing is offered that the engine would not read
+    assert shown_in_some_mode(template) == read_by_the_engine(template)
+
+
+def test_whatever_the_forms_offer_the_engine_can_run():
+    draft = ScenarioDraft()
+    draft.apply_template("Full system")
+
+    for template in FORMS:
+        component = draft.component(template)
+        for block in form_blocks(component):
+            for choice in [spec for spec in BLOCKS[block].fields if spec.kind == "choice"]:
+                for pick in choice.options:
+                    set_value(component, block, choice.key, pick)
+                    for (_, key) in shown_in_some_mode(template):
+                        spec = spec_of(block, key)
+                        if spec.kind == "number":
+                            set_value(component, block, key, max(spec.minimum or 0, 1))
+                    assert engine_gaps(draft.scenario()) == [], (template, pick)
+
+
+def test_what_is_typed_in_the_forms_reaches_the_settings_of_the_engine():
+    draft = ScenarioDraft()
+    draft.apply_template("Full system")
+    for template, block, key, raw in [
+        ("grid", "costs", "variable_costs", 0.35), ("grid_feedin", "costs", "revenue", 0.05),
+        ("gas_import", "costs", "variable_costs", 0.12), ("demand", "demand", "annual_demand", 45000),
+        ("heat_demand", "demand", "annual_demand", 100000), ("wind", "capacity", "capacity", 20),
+        ("pv", "capacity", "capacity", 50),
+    ]:
+        assert set_value(draft.component(template), block, key, raw) is None
+
+    settings = scenario_to_v1(draft.scenario()).settings
+
+    assert settings["grid"]["variable_costs"] == 0.35 and settings["grid_feedin"]["feedin_tariff"] == 0.05
+    assert settings["gas_import"]["variable_costs"] == 0.12
+    assert settings["demand"]["scaling_factor"] == 45000 and settings["heat_demand"]["scaling_factor"] == 100000
+    assert (settings["wind"]["mode"], settings["wind"]["capacity"]) == ("fixed", 20)
+    assert settings["pv"]["capacity"] == 50
+
+
+def test_a_demand_in_kw_reaches_the_engine_with_a_factor_of_1():
+    draft = ScenarioDraft()
+    draft.apply_template("Electricity only")
+
+    set_value(draft.component("demand"), "demand", "profile_type", "absolute")
+
+    assert scenario_to_v1(draft.scenario()).settings["demand"]["scaling_factor"] == 1.0
+
+
+def test_a_feed_in_tariff_above_the_price_is_found_by_the_check_while_typing():
+    draft = ScenarioDraft()
+    draft.apply_template("PV system")
+    assert not any(f.code == "feedin_above_price" for f in draft.findings())
+
+    set_value(draft.component("grid_feedin"), "costs", "revenue", 0.5)
+
+    found = [f for f in draft.findings() if f.code == "feedin_above_price"]
+    assert found and "(0.5 €/kWh) is higher than the electricity price (0.3 €/kWh)" in found[0].message
+
+    set_value(draft.component("grid"), "costs", "variable_costs", 0.6)
+
+    assert not any(f.code == "feedin_above_price" for f in draft.findings())
+
+
+def test_whatever_is_typed_into_any_form_stays_a_valid_scenario():
+    rng = random.Random(11)
+    draft = ScenarioDraft()
+    draft.apply_template("Full system")
+    wild = [None, "", "abc", "-5", 0, 1, -1, 0.05, 0.3, 50, 100, 101, 30000, 1e12, -1e12, True, False,
+            float("nan"), float("inf"), "12.5", [], {}]
+    targets = [(template, block, spec) for template in FORMS for block in form_blocks(new_component(template))
+               for spec in BLOCKS[block].fields if FORMS[template][block] is None or spec.key in FORMS[template][block]]
+
+    for _ in range(4000):
+        template, block, spec = rng.choice(targets)
+        raw = rng.choice(list(spec.options) + ["dunno"]) if spec.kind == "choice" else rng.choice(wild)
+        try:
+            set_value(draft.component(template), block, spec.key, raw)
+        except ValueError:
+            assert spec.kind == "choice" and raw == "dunno"
+        draft.scenario()                                          # must never raise

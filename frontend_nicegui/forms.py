@@ -5,8 +5,14 @@ knows each setting: its kind (number or choice), unit, range, step, section and 
 is shown (`visible_if`). The texts are in the catalogs of backend/i18n, under
 "field.<block>.<setting>.<label|help|unit|option.<value>>".
 
-A form is made from the blocks of a component. Which components have a form, and for
-which blocks, is `FORMS`.
+A form is made from the blocks of a component. Which components have a form, for which
+blocks and which settings of them, is `FORMS`. A form only shows settings that the engine
+reads (a grid has a price, no revenue), and every setting the engine reads is in it; a test
+compares the table with what the adapter to the engine consumes.
+
+A component can have words of its own for a setting: the text "field.costs.variable_costs.
+label@grid" is used for the grid instead of the general "field.costs.variable_costs.label"
+(there it says "Electricity price", not "Variable costs").
 
 An input is stored in the component (`set_value`), or refused with a message for the
 reader; what is refused is never stored, so that a scenario made from the draft is
@@ -20,8 +26,17 @@ from dataclasses import dataclass, field
 from backend.blocks import BLOCKS
 from backend.i18n import ENGLISH, Msg
 
-# component template -> the blocks that have a form (more follow with the other components)
-FORMS = {"pv": ("capacity",)}
+# component template -> {block: the settings of it that the form shows (None: all of them)}
+# (the other components follow)
+FORMS = {
+    "pv": {"capacity": None},
+    "wind": {"capacity": None},
+    "demand": {"demand": None},
+    "heat_demand": {"demand": None},
+    "grid": {"costs": ("variable_costs",)},
+    "grid_feedin": {"costs": ("revenue",)},
+    "gas_import": {"costs": ("variable_costs",)},
+}
 
 SECTIONS = ("basic", "investment", "advanced")
 
@@ -31,7 +46,15 @@ def has_form(component):
 
 
 def form_blocks(component):
-    return FORMS.get(component.template, ())
+    return tuple(FORMS.get(component.template, {}))
+
+
+def _text(tr, base, part, template):
+    """A text of a setting: the one of the component if it has one of its own, else the general one."""
+
+    specific = f"{base}.{part}@{template}"
+
+    return tr(specific) if template and tr.has(specific) else tr(f"{base}.{part}")
 
 
 def spec_of(block_name, key):
@@ -82,9 +105,14 @@ def form_fields(component, block_name, tr=ENGLISH):
 
     block = BLOCKS[block_name]
     values = component.blocks.get(block_name, {})
+    shown = FORMS.get(component.template, {}).get(block_name)         # None: all settings of the block
+    template = component.template
     fields = []
 
     for spec in block.visible_fields(values):
+        if shown is not None and spec.key not in shown:
+            continue
+
         base = f"field.{block_name}.{spec.key}"
         value = values.get(spec.key)
         if value is None and spec.kind == "choice":
@@ -94,14 +122,14 @@ def form_fields(component, block_name, tr=ENGLISH):
             block=block_name,
             key=spec.key,
             kind=spec.kind,
-            label=tr(f"{base}.label"),
-            help=tr(f"{base}.help") if spec.help else "",
-            unit=tr(f"{base}.unit") if spec.unit else "",
+            label=_text(tr, base, "label", template),
+            help=_text(tr, base, "help", template) if spec.help else "",
+            unit=_text(tr, base, "unit", template) if spec.unit else "",
             value=value,
             minimum=spec.minimum,
             maximum=spec.maximum,
             step=spec.step,
-            options={option: tr(f"{base}.option.{option}") for option in spec.options},
+            options={option: _text(tr, base, f"option.{option}", template) for option in spec.options},
             section=spec.section,
             hint=range_hint(spec) if spec.kind == "number" else None,
         ))

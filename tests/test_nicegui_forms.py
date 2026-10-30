@@ -56,6 +56,21 @@ async def wait_for_size(user: User, expected: str):
     assert (await pv_row(user))["size"] == expected
 
 
+async def row_of(user: User, types):
+    await user.should_see(marker="draft-components")
+    rows = field(user, "draft-components").rows
+    return next(row for row in rows if row["type"] in types)
+
+
+async def wait_for_row_size(user: User, types, expected: str):
+    for _ in range(60):
+        if (await row_of(user, types))["size"] == expected:
+            return
+        await asyncio.sleep(0.05)
+
+    assert (await row_of(user, types))["size"] == expected
+
+
 async def pick_mode(user: User, mode: str):
     field(user, MODE).value = mode
     marker = INVEST_MARKERS[0] if mode == "invest" else CAPACITY
@@ -72,13 +87,14 @@ async def switched_to(user: User, language: str):
 # which components have a form
 # ---------------------------------------------------------------------------
 
-async def test_there_is_no_form_without_a_pv_system(user: User):
+async def test_there_is_no_form_for_a_pv_system_that_is_not_there(user: User):
     await open_page(user)
 
     await choose_template(user, "Electricity only")
 
     assert not exists(user, "form-pv")
-    await user.should_not_see("Settings of")
+    await user.should_not_see("Settings of PV system")
+    assert exists(user, "form-demand") and exists(user, "form-grid")
 
 
 async def test_a_pv_system_gets_a_card_with_its_settings(user: User):
@@ -96,8 +112,10 @@ async def test_only_the_components_with_a_form_get_one(user: User):
 
     await choose_template(user, "Full system")
 
-    assert [m for m in ("form-pv", "form-wind", "form-battery", "form-demand", "form-grid") if exists(user, m)] == [
-        "form-pv"]
+    keys = ["demand", "heat_demand", "grid", "grid_feedin", "gas_import", "pv", "wind",
+            "gas_boiler", "heat_pump", "heating_rod", "chp", "battery", "heat_storage"]
+    assert sorted(key for key in keys if exists(user, f"form-{key}")) == sorted(
+        ["demand", "heat_demand", "grid", "grid_feedin", "gas_import", "pv", "wind"])
 
 
 async def test_unticking_the_pv_system_removes_its_form_and_ticking_it_again_starts_with_the_defaults(user: User):
@@ -387,7 +405,7 @@ async def test_the_table_and_the_check_follow_the_form_in_german(user: User):
 async def test_the_page_says_which_forms_there_are_so_far(user: User):
     await open_page(user)
 
-    await user.should_see("settings forms exist for the PV system so far")
+    await user.should_see("settings forms exist for the demands, the grid, the feed-in, the gas import")
 
 
 async def test_the_unit_of_the_number_field_is_an_input_suffix_not_a_separate_text(user: User):
@@ -396,3 +414,138 @@ async def test_the_unit_of_the_number_field_is_an_input_suffix_not_a_separate_te
 
     assert isinstance(field(user, CAPACITY), ui.number)
     assert isinstance(field(user, MODE), ui.radio)
+
+
+# ---------------------------------------------------------------------------
+# the other forms: the demands, the grid, the feed-in, the gas import and the wind turbine
+# ---------------------------------------------------------------------------
+
+PRICE = "field-grid-costs-variable_costs"
+TARIFF = "field-grid_feedin-costs-revenue"
+GAS = "field-gas_import-costs-variable_costs"
+PROFILE = "field-demand-demand-profile_type"
+ANNUAL = "field-demand-demand-annual_demand"
+HEAT = "field-heat_demand-demand-annual_demand"
+WIND = "field-wind-capacity-capacity"
+
+
+async def test_the_demand_and_the_grid_have_forms_with_words_of_their_own(user: User):
+    await open_page(user)
+
+    await choose_template(user, "Electricity only")
+
+    await user.should_see("Settings of Electricity demand")
+    await user.should_see("Settings of Electricity grid")
+    await user.should_see("Annual electricity demand")
+    await user.should_see("Electricity price")
+    await user.should_not_see("Variable costs")
+    assert field(user, ANNUAL).value == 30000 and field(user, ANNUAL).props["suffix"] == "kWh per year"
+    assert field(user, PRICE).value == 0.3 and field(user, PRICE).props["suffix"] == "€ per kWh"
+    assert field(user, PROFILE).value == "annual_share"
+
+
+async def test_the_grid_asks_only_for_the_price_and_the_feed_in_only_for_the_tariff(user: User):
+    await open_page(user)
+
+    await choose_template(user, "PV system")
+
+    assert exists(user, PRICE) and not exists(user, "field-grid-costs-revenue")
+    assert exists(user, TARIFF) and not exists(user, "field-grid_feedin-costs-variable_costs")
+    await user.should_see("Feed-in tariff")
+    assert field(user, TARIFF).value == 0.078
+
+
+async def test_the_heat_demand_and_the_gas_import_have_their_forms(user: User):
+    await open_page(user)
+
+    await choose_template(user, "Gas heating")
+
+    await user.should_see("Annual heat demand")
+    await user.should_see("Gas price")
+    assert field(user, HEAT).value == 90000 and field(user, GAS).value == 0.1
+    assert not exists(user, "form-gas_boiler")                       # its form follows with the converters
+
+
+async def test_a_demand_in_kw_has_no_annual_demand_and_it_comes_back_with_its_value(user: User):
+    await open_page(user)
+    await choose_template(user, "Electricity only")
+    user.find(marker=ANNUAL).clear().type("45000")
+    await settle()
+
+    field(user, PROFILE).value = "absolute"
+    await user.should_not_see(marker=ANNUAL)
+
+    field(user, PROFILE).value = "annual_share"
+    await user.should_see(marker=ANNUAL)
+
+    assert field(user, ANNUAL).value == 45000
+
+
+async def test_the_choices_for_the_profile_are_worded_for_the_reader(user: User):
+    await open_page(user)
+    await choose_template(user, "Electricity only")
+
+    assert field(user, PROFILE).options == {
+        "annual_share": "Shares that add up to 1 over a year", "absolute": "The demand in kW"}
+
+
+async def test_a_tariff_above_the_price_is_found_by_the_check_while_typing(user: User):
+    await open_page(user)
+    await choose_template(user, "PV system")
+
+    user.find(marker=TARIFF).clear().type("0.5")
+
+    await user.should_see("The feed-in tariff (0.5 €/kWh) is higher than the electricity price (0.3 €/kWh)")
+
+    user.find(marker=PRICE).clear().type("0.6")
+
+    await user.should_not_see("is higher than the electricity price")
+
+
+async def test_a_price_below_zero_is_explained_at_the_field(user: User):
+    await open_page(user)
+    await choose_template(user, "Electricity only")
+
+    field(user, PRICE).value = -0.1
+    await settle()
+
+    assert field(user, PRICE).error == "Enter a number of at least 0."
+
+
+async def test_the_wind_turbine_has_the_form_of_the_size_with_its_own_help(user: User):
+    await open_page(user)
+
+    await choose_template(user, "PV + wind")
+
+    await user.should_see("Settings of Wind turbine")
+    await user.should_see("The rated power of the wind turbine.")
+    await user.should_see("The installed peak power of the plant.")                # the PV system keeps the general one
+    user.find(marker=WIND).clear().type("30")
+    await wait_for_row_size(user, ("Wind turbine",), "30 kW")
+    assert (await row_of(user, ("PV system",)))["size"] == "not set"               # the two forms are independent
+
+
+async def test_the_forms_are_in_german(user: User):
+    await open_page(user, "de")
+
+    await choose_template(user, "PV system")
+
+    await user.should_see("Einstellungen: Strombedarf")
+    await user.should_see("Jahresstrombedarf")
+    await user.should_see("Strompreis")
+    await user.should_see("Einspeisevergütung")
+    assert field(user, ANNUAL).props["suffix"] == "kWh pro Jahr"
+    assert field(user, PRICE).props["suffix"] == "€ pro kWh"
+    assert field(user, PROFILE).options["absolute"] == "Der Bedarf in kW"
+
+
+async def test_a_price_that_was_typed_stays_when_the_language_changes(user: User):
+    await open_page(user)
+    await choose_template(user, "Electricity only")
+    user.find(marker=PRICE).clear().type("0.35")
+    await settle()
+
+    await switched_to(user, "de")
+
+    await user.should_see("Strompreis")
+    assert field(user, PRICE).value == 0.35

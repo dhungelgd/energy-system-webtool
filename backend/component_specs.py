@@ -394,8 +394,10 @@ MODE = FieldSpec(
         "invest": "The optimizer chooses the size",
     },
     default="fixed",
-    help="Fixed: the size you enter is used. Invest: the optimizer chooses the "
-         "size that gives the lowest total cost, within the maximum you set.",
+    help="Fixed: the size you enter is used. With a fixed size the investment "
+         "settings are not needed, and the cost of the plant is not part of the "
+         "system cost. Invest: the optimizer chooses the size that gives the "
+         "lowest total cost, within the maximum you set.",
 )
 
 PV = ComponentSpec(
