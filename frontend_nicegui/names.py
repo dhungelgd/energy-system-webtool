@@ -4,7 +4,7 @@ The English names are the ones in the backend (`component_specs.INFO`, the group
 templates of `system_templates.py`); the catalogs hold them in every language.
 """
 
-from backend.component_specs import INFO
+from backend.findings import ComponentRef, reference
 from backend.i18n import ENGLISH
 from frontend_nicegui.markers import slug
 
@@ -32,9 +32,6 @@ def display_name(component, tr=ENGLISH):
     the language of the reader. A name that someone chose stays as it is.
     """
 
-    info = INFO.get(component.template)
+    name = reference(component)
 
-    if info is not None and component.name == info.label:
-        return component_label(tr, component.template)
-
-    return component.name
+    return name.render(tr) if isinstance(name, ComponentRef) else name

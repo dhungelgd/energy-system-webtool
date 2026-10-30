@@ -14,6 +14,7 @@ import logging
 from nicegui import events, run, ui
 
 from backend import service_v2
+from backend.findings import finding_text
 from backend.i18n import LANGUAGES, Msg, choose_language
 from backend.service import ScenarioError
 from backend.system_templates import SYSTEM_TEMPLATES, components_by_group
@@ -115,7 +116,7 @@ def show_findings(findings, tr, title_key="findings.title", marker="findings"):
             icon, color = ("error", "negative") if finding.level == "error" else ("warning", "warning")
             with ui.row().classes("items-start gap-2 no-wrap"):
                 ui.icon(icon, color=color)
-                ui.label(finding.message)
+                ui.label(finding_text(finding, tr))
 
         if errors:
             ui.label(tr("findings.fix_errors")).classes("text-negative")

@@ -1,16 +1,5 @@
-from dataclasses import dataclass
-
+from backend.findings import ComponentRef, Finding, coded  # noqa: F401 - Finding is re-exported
 from backend.price_units import PRICE_UNIT_FACTORS, price_series_in_eur_per_kwh
-
-
-@dataclass
-class Finding:
-    """One result of the system check."""
-
-    level: str            # "error" blocks the run, "warning" does not
-    message: str
-    fixes: tuple = ()     # each fix is a tuple of component keys that would solve it
-
 
 # components that need a capacity (fixed mode) or cost data (invest mode)
 SIZED_COMPONENTS = (
@@ -18,11 +7,11 @@ SIZED_COMPONENTS = (
     "gas_boiler", "heat_pump", "heating_rod", "chp",
 )
 
-# efficiencies that must be entered (greater than 0)
-EFFICIENCY_LABELS = {
+# efficiencies that must be entered (greater than 0), and the finding for each
+EFFICIENCY_CODES = {
     "efficiency": "efficiency",
-    "efficiency_el": "electrical efficiency",
-    "efficiency_th": "thermal efficiency",
+    "efficiency_el": "efficiency_electrical",
+    "efficiency_th": "efficiency_thermal",
 }
 EFFICIENCY_FIELDS = {
     "heating_rod": ("efficiency",),
@@ -60,21 +49,21 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
     combinations that are probably not what the user wants, or that can make the
     model infeasible.
 
+    A finding is a code plus parameters (see findings.py); the sentences are in the
+    catalogs of backend/i18n. Its English wording is in `message`.
+
     This module does not use Streamlit, so any frontend can call it.
 
     selected     list of component keys, e.g. ["demand", "grid", "pv"]
     tech_inputs  values entered by the user, e.g. {"pv": {"mode": "fixed", ...}}
     input_data   uploaded time series, e.g. {"pv": [...], "electricity_demand": [...]}
-    labels       readable names for the messages, e.g. {"pv": "PV System"}
+    labels       readable names for the English wording, e.g. {"pv": "PV System"}
     """
 
     chosen = set(selected)
     tech_inputs = tech_inputs or {}
     input_data = input_data or {}
     labels = labels or {}
-
-    def name(key):
-        return labels.get(key, key)
 
     def fixes(*options):
         # keep only what is still missing; drop options that are already complete
@@ -87,6 +76,14 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
 
     errors = []
     warnings = []
+
+    def error(code, fix=(), **params):
+        errors.append(coded("error", code, labels, fix, **params))
+
+    def warning(code, fix=(), **params):
+        warnings.append(coded("warning", code, labels, fix, **params))
+
+    ref = ComponentRef
 
     # what can actually supply energy in the selected system
     renewables = [k for k in ("pv", "wind") if k in chosen]
@@ -103,73 +100,47 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
 
     # structure: errors (the model cannot be solved)
     if not chosen & {"demand", "heat_demand"}:
-        errors.append(Finding(
-            "error",
-            "No demand selected. Add an electricity demand or a heat demand.",
-            fixes(("demand",), ("heat_demand",)),
-        ))
+        error("no_demand", fixes(("demand",), ("heat_demand",)))
 
     if "demand" in chosen and not electricity_source:
-        errors.append(Finding(
-            "error",
-            f"{name('demand')} has no supply. Add a grid connection (or PV or wind).",
-            fixes(("grid",)),
-        ))
+        error("demand_no_supply", fixes(("grid",)), component=ref("demand"))
 
     heat_error = "heat_demand" in chosen and not heat_source
     if heat_error:
-        errors.append(Finding(
-            "error",
-            f"{name('heat_demand')} cannot be supplied. It needs a working heat source: "
-            f"a gas boiler or CHP plant together with a gas import, or a heat pump "
-            f"or heating rod together with electricity from the grid or PV.",
+        error(
+            "heat_not_supplied",
             fixes(
                 ("gas_boiler", "gas_import"),
                 ("chp", "gas_import"),
                 ("heat_pump", "grid"),
                 ("heating_rod", "grid"),
             ),
-        ))
+            component=ref("heat_demand"),
+        )
 
     # electricity price: constant value or uploaded time series
     grid = tech_inputs.get("grid", {})
     price_is_series = "grid" in chosen and grid.get("price_mode") == "timeseries"
     lowest_price = None          # lowest electricity price in EUR/kWh (for the feed-in check)
-    price_label = "electricity price"
+    price_from_series = False
 
     if price_is_series:
         series = input_data.get("grid_price")
         horizon = len(input_data["timeindex"]) if input_data.get("timeindex") is not None else None
 
         if series is None:
-            errors.append(Finding(
-                "error",
-                f"{name('grid')}: no price time series uploaded. Upload a file "
-                f"or switch the electricity price to 'constant'.",
-            ))
+            error("grid_price_missing", component=ref("grid"))
         elif grid.get("price_unit", "€/kWh") not in PRICE_UNIT_FACTORS:
-            errors.append(Finding(
-                "error",
-                f"{name('grid')}: unknown price unit '{grid.get('price_unit')}'.",
-            ))
+            error("grid_price_unit", component=ref("grid"), unit=grid.get("price_unit"))
         else:
             prices = price_series_in_eur_per_kwh(series, grid.get("price_unit", "€/kWh"))
             if any(p != p for p in prices):
-                errors.append(Finding(
-                    "error",
-                    f"{name('grid')}: the price series contains empty values. "
-                    f"Please check the selected column.",
-                ))
+                error("grid_price_empty", component=ref("grid"))
             elif horizon is not None and len(prices) < horizon:
-                errors.append(Finding(
-                    "error",
-                    f"{name('grid')}: the price series has {len(prices)} values, but the "
-                    f"selected time range needs {horizon}. Upload a longer series or "
-                    f"shorten the time range.",
-                ))
+                error("grid_price_short", component=ref("grid"), count=len(prices), needed=horizon)
             else:
                 lowest_price = min(prices)
-                price_label = f"lowest electricity price in the series"
+                price_from_series = True
     else:
         lowest_price = grid.get("variable_costs")
 
@@ -181,38 +152,25 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
         and tariff is not None
         and tariff > lowest_price
     ):
-        errors.append(Finding(
-            "error",
-            f"The feed-in tariff ({tariff:g} €/kWh) is higher than the "
-            f"{price_label} ({lowest_price:g} €/kWh). The model could buy and sell "
-            f"electricity at the same time for unlimited profit and cannot be solved. "
-            f"Please check the prices and their units.",
-        ))
+        error(
+            "feedin_above_lowest_price" if price_from_series else "feedin_above_price",
+            tariff=tariff, price=lowest_price,
+        )
 
     # inputs: errors (missing values that would stop the run)
     for key, profile in REQUIRED_PROFILES.items():
         if key in chosen and input_data.get(profile) is None:
-            errors.append(Finding(
-                "error",
-                f"{name(key)}: no time series uploaded. Upload a file in its tab.",
-            ))
+            error("profile_missing", component=ref(key))
 
     heat_pump = tech_inputs.get("heat_pump", {})
     if "heat_pump" in chosen:
         if heat_pump.get("cop_mode") == "timeseries":
             if input_data.get("cop_series") is None:
-                errors.append(Finding(
-                    "error",
-                    f"{name('heat_pump')}: no COP time series uploaded. Upload a "
-                    f"file or switch the COP mode to 'constant'.",
-                ))
+                error("cop_missing", component=ref("heat_pump"))
         else:
             cop = heat_pump.get("cop_value")
             if cop is None or cop <= 0:
-                errors.append(Finding(
-                    "error",
-                    f"{name('heat_pump')}: the constant COP must be greater than 0.",
-                ))
+                error("cop_not_positive", component=ref("heat_pump"))
 
     # time series: complete values, and long enough for the selected time range
     n_steps = len(input_data["timeindex"]) if input_data.get("timeindex") is not None else None
@@ -229,25 +187,11 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
             continue    # a missing upload is already reported above
 
         if _has_invalid_values(values):
-            errors.append(Finding(
-                "error",
-                f"{name(key)}: the selected time series contains empty or "
-                f"non-numeric values. Please check the selected column.",
-            ))
+            error("series_invalid", component=ref(key))
         elif n_steps is not None and len(values) < n_steps:
-            errors.append(Finding(
-                "error",
-                f"{name(key)}: the time series has {len(values)} values, but the "
-                f"selected time range needs {n_steps}. Upload a longer series or "
-                f"shorten the time range.",
-            ))
+            error("series_short", component=ref(key), count=len(values), needed=n_steps)
         elif n_steps is not None and len(values) > n_steps:
-            warnings.append(Finding(
-                "warning",
-                f"{name(key)}: the time series has {len(values)} values, but the "
-                f"selected time range needs {n_steps}. Only the first {n_steps} "
-                f"values will be used.",
-            ))
+            warning("series_long", component=ref(key), count=len(values), needed=n_steps)
 
     for key, fields in EFFICIENCY_FIELDS.items():
         if key not in chosen:
@@ -256,30 +200,20 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
         for field in fields:
             value = values.get(field)
             if value is None or value <= 0:
-                errors.append(Finding(
-                    "error",
-                    f"{name(key)}: the {EFFICIENCY_LABELS[field]} must be greater than 0.",
-                ))
+                error(EFFICIENCY_CODES[field], component=ref(key))
 
     for key in ("battery", "heat_storage"):
         if key not in chosen:
             continue
         c_rate = tech_inputs.get(key, {}).get("c_rate")
         if c_rate is None or c_rate <= 0:
-            errors.append(Finding(
-                "error",
-                f"{name(key)}: the charge/discharge rate (C-rate) must be greater than 0.",
-            ))
+            error("c_rate", component=ref(key))
 
     if "chp" in chosen:
         chp = tech_inputs.get("chp", {})
         eta_el, eta_th = chp.get("efficiency_el"), chp.get("efficiency_th")
         if eta_el and eta_th and eta_el + eta_th > 1:
-            errors.append(Finding(
-                "error",
-                f"{name('chp')}: electrical + thermal efficiency "
-                f"({eta_el + eta_th:g}) cannot be greater than 1.",
-            ))
+            error("chp_efficiency_sum", component=ref("chp"), total=eta_el + eta_th)
 
     for key in SIZED_COMPONENTS:
         if key not in chosen or key not in tech_inputs:
@@ -291,111 +225,61 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
         if mode in (None, "fixed"):
             capacity = values.get("capacity")
             if capacity is None or capacity <= 0:
-                errors.append(Finding(
-                    "error",
-                    f"{name(key)}: fixed mode needs a capacity greater than 0 "
-                    f"(or set the mode to 'invest').",
-                ))
+                error("fixed_needs_capacity", component=ref(key))
 
         elif mode == "invest":
             missing = [f for f in INVEST_FIELDS if values.get(f) is None]
             if missing:
-                errors.append(Finding(
-                    "error",
-                    f"{name(key)}: invest mode needs values for {', '.join(missing)}.",
-                ))
+                error("invest_needs_values", component=ref(key), fields=", ".join(missing))
 
     # structure: warnings (the model may still run)
     if renewables and "grid" not in chosen and chosen & {"demand", "heat_pump", "heating_rod"}:
-        names = " and ".join(name(k) for k in renewables)
-        warnings.append(Finding(
-            "warning",
-            f"{names} alone cannot cover demand at all times. Without a grid "
-            f"connection (or enough storage) the model may be infeasible.",
-            fixes(("grid",)),
-        ))
+        warning(
+            "renewables_alone", fixes(("grid",)),
+            components=[ref(k) for k in renewables], n=len(renewables),
+        )
 
     fixed_renewables = [
         k for k in renewables
         if tech_inputs.get(k, {}).get("mode") in (None, "fixed")
     ]
     if fixed_renewables and "grid_feedin" not in chosen:
-        names = " and ".join(name(k) for k in fixed_renewables)
-        warnings.append(Finding(
-            "warning",
-            f"Surplus electricity from {names} cannot be exported. With a fixed "
-            f"capacity the model can become infeasible when production is higher "
-            f"than what is used.",
-            fixes(("grid_feedin",)),
-        ))
+        warning(
+            "surplus_not_exported", fixes(("grid_feedin",)),
+            components=[ref(k) for k in fixed_renewables],
+        )
 
     if "grid_feedin" in chosen and not (renewables or chp_works):
-        warnings.append(Finding(
-            "warning",
-            f"{name('grid_feedin')} is selected, but nothing feeds electricity into it.",
-            fixes(("pv",), ("wind",), ("chp", "gas_import")),
-        ))
+        warning(
+            "feedin_unused", fixes(("pv",), ("wind",), ("chp", "gas_import")),
+            component=ref("grid_feedin"),
+        )
 
     # a CHP plant always produces heat and electricity together
     other_heat = heat_pump_works or heating_rod_works or boiler_works
     if "chp" in chosen and "gas_import" not in chosen and not heat_error:
-        warnings.append(Finding(
-            "warning",
-            f"{name('chp')} has no fuel supply and cannot run.",
-            fixes(("gas_import",)),
-        ))
+        warning("no_fuel", fixes(("gas_import",)), component=ref("chp"))
     if "chp" in chosen and "heat_demand" not in chosen:
-        warnings.append(Finding(
-            "warning",
-            f"{name('chp')} always produces heat as well. Without a heat demand "
-            f"the heat cannot be used and the plant will not run.",
-            fixes(("heat_demand",)),
-        ))
+        warning("chp_no_heat_demand", fixes(("heat_demand",)), component=ref("chp"))
     if chp_works and "grid_feedin" not in chosen and not other_heat:
-        warnings.append(Finding(
-            "warning",
-            f"{name('chp')} is the only heat source and its electricity cannot be "
-            f"exported. If heat demand is high compared to electricity demand "
-            f"the model can become infeasible.",
-            fixes(("grid_feedin",)),
-        ))
+        warning("chp_only_heat_source", fixes(("grid_feedin",)), component=ref("chp"))
 
     if "gas_boiler" in chosen and "gas_import" not in chosen and not heat_error:
-        warnings.append(Finding(
-            "warning",
-            f"{name('gas_boiler')} has no fuel supply and cannot run.",
-            fixes(("gas_import",)),
-        ))
+        warning("no_fuel", fixes(("gas_import",)), component=ref("gas_boiler"))
 
     for key in ("heat_pump", "heating_rod"):
         if key in chosen and not electricity_source and not heat_error:
-            warnings.append(Finding(
-                "warning",
-                f"{name(key)} needs electricity and cannot run.",
-                fixes(("grid",)),
-            ))
+            warning("needs_electricity", fixes(("grid",)), component=ref(key))
 
     if "gas_import" in chosen and not chosen & {"gas_boiler", "chp"}:
-        warnings.append(Finding(
-            "warning",
-            f"{name('gas_import')} is selected, but no component uses gas.",
-            fixes(("gas_boiler",), ("chp",)),
-        ))
+        warning("gas_unused", fixes(("gas_boiler",), ("chp",)), component=ref("gas_import"))
 
     if "battery" in chosen and not electricity_source:
-        warnings.append(Finding(
-            "warning",
-            f"{name('battery')} has nothing to charge from. Add a grid connection, PV or wind.",
-            fixes(("grid",), ("pv",), ("wind",)),
-        ))
+        warning("battery_no_source", fixes(("grid",), ("pv",), ("wind",)), component=ref("battery"))
 
     if "heat_demand" not in chosen:
         for key in ("gas_boiler", "heat_pump", "heating_rod", "heat_storage"):
             if key in chosen:
-                warnings.append(Finding(
-                    "warning",
-                    f"{name(key)} is selected, but there is no heat demand.",
-                    fixes(("heat_demand",)),
-                ))
+                warning("no_heat_demand", fixes(("heat_demand",)), component=ref(key))
 
     return errors + warnings

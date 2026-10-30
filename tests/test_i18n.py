@@ -270,15 +270,24 @@ def literal_keys_in_calls():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not (isinstance(node, ast.Call) and node.args):
                 continue
-            first = node.args[0]
-            if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
-                continue
-
             function = node.func
-            if isinstance(function, ast.Name) and function.id in ("tr", "Msg", "ScenarioFileError"):
-                keys.append((path.name, first.value))
-            elif isinstance(function, ast.Attribute) and function.attr == "plural":
-                plural_keys.append((path.name, first.value))
+
+            def literal(position):
+                if len(node.args) > position:
+                    argument = node.args[position]
+                    if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                        return argument.value
+
+            if isinstance(function, ast.Name) and function.id in ("tr", "Msg", "ScenarioFileError") and literal(0):
+                keys.append((path.name, literal(0)))
+            elif isinstance(function, ast.Attribute) and function.attr == "plural" and literal(0):
+                plural_keys.append((path.name, literal(0)))
+            # the code of a finding: coded("error", "code", ...) or, in the system check, error("code", ...)
+            elif isinstance(function, ast.Name) and function.id == "coded" and literal(1):
+                keys.append((path.name, f"check.{literal(1)}"))
+            elif (isinstance(function, ast.Name) and function.id in ("error", "warning")
+                  and path.name == "system_check.py" and literal(0)):
+                keys.append((path.name, f"check.{literal(0)}"))
 
     return keys, plural_keys
 
@@ -299,24 +308,27 @@ def test_the_code_asks_for_texts_that_exist():
 
     assert keys and plural_keys                    # the scan finds the calls at all
     for place, key in keys:
-        assert key in EN, f"{place}: no text '{key}'"
+        assert key in EN or f"{key}.one" in EN, f"{place}: no text '{key}'"
     for place, key in plural_keys:
         assert f"{key}.one" in EN and f"{key}.other" in EN, f"{place}: no plural '{key}'"
 
 
 def test_every_text_in_the_catalog_is_used_by_the_code():
-    strings = every_string_in_the_sources()
+    strings = every_string_in_the_sources() | {key for _, key in literal_keys_in_calls()[0]}
     unused = []
 
     for key in EN:
         base = key.rsplit(".", 1)[0] if key.endswith((".one", ".other")) else key
         if key.startswith(DYNAMIC_FAMILIES):
             continue
-        if key not in strings and base not in strings:
+        if key.startswith("check."):
+            # the code of a finding is also written in tables and conditions, not only in the call
+            if key.split(".")[1] not in strings:
+                unused.append(key)
+        elif key not in strings and base not in strings:
             unused.append(key)
 
     assert unused == [], f"texts nobody asks for: {unused}"
-
 
 def test_the_hints_of_the_draft_are_the_english_texts_of_the_catalog():
     assert STEPS_HINT == ENGLISH("hint.steps", min=MIN_STEPS, max=ENGLISH.integer(MAX_STEPS))

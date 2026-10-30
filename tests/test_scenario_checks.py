@@ -149,3 +149,30 @@ def test_checking_does_not_change_the_scenario():
     check_data(original)
 
     assert original.model_dump() == before
+
+# ---------------------------------------------------------------------------
+# codes and parameters
+# ---------------------------------------------------------------------------
+
+def test_the_findings_are_codes_with_parameters_so_that_a_page_can_word_them_in_its_language():
+    from backend.findings import ComponentRef, Fixed, finding_text
+    from backend.i18n import Translator
+
+    found = check_data(scenario(demand=[0.5 / YEAR] * YEAR, profile=[4.0]))
+
+    assert [f.code for f in found] == ["profile_shares", "capacity_factor"]
+    assert found[0].params["component"] == "Office demand"               # a name of its own stays as it is
+    assert found[0].params["total"].decimals == 3
+    assert found[0].params["total"].value == pytest.approx(0.5)  # not exactly: 3.11 adds up less precisely
+    assert found[1].params["maximum"] == Fixed(4.0, 2)
+    assert finding_text(found[1], Translator("de")).startswith("Roof PV: Das Erzeugungsprofil hat Werte bis 4,00")
+    assert isinstance(ComponentRef("pv"), ComponentRef)
+
+
+def test_the_option_that_the_message_proposes_is_the_one_of_the_form():
+    from backend.blocks import BLOCKS
+
+    found = check_data(scenario(demand=[0.5 / YEAR] * YEAR))
+    absolute = BLOCKS["demand"].fields[0].option_labels["absolute"]
+
+    assert f"'{absolute}'" in found[0].message

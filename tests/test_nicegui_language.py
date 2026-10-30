@@ -409,3 +409,99 @@ async def test_the_close_button_of_the_calendar_is_translated(user: User):
     buttons = [element.text for element in user.find(kind=ui.button).elements]
 
     assert "Schließen" in buttons and "Close" not in buttons
+
+
+# ---------------------------------------------------------------------------
+# the messages of the system check
+# ---------------------------------------------------------------------------
+
+async def finding_texts(user: User, marker: str):
+    await user.should_see(marker=marker)
+    card = field(user, marker)
+    return [element.text for element in card.descendants() if isinstance(element, ui.label)]
+
+
+async def test_the_messages_of_the_check_of_the_draft_are_in_german(user: User):
+    await open_page(user, "de")
+
+    await choose_template(user, "Gas heating")
+
+    texts = await finding_texts(user, "draft-findings")
+    assert "Wärmebedarf: keine Zeitreihe hochgeladen. Laden Sie eine Zeitreihe dafür hoch." in texts
+    assert ("Gaskessel: Der Modus 'fest' braucht eine Größe über 0 "
+            "(oder setzen Sie den Modus auf 'Investition').") in texts
+    assert not any("Upload" in text or "no time series" in text for text in texts)
+
+
+async def test_the_messages_of_the_check_of_the_draft_are_in_english_by_default(user: User):
+    await open_page(user)
+
+    await choose_template(user, "Gas heating")
+
+    texts = await finding_texts(user, "draft-findings")
+    assert "Heat demand: no time series uploaded. Upload a time series for it." in texts
+    assert "Gas boiler: fixed mode needs a capacity greater than 0 (or set the mode to 'invest')." in texts
+
+
+async def test_the_messages_are_worded_again_when_the_language_changes(user: User):
+    await open_page(user)
+    await choose_template(user, "Gas heating")
+    assert "Heat demand: no time series uploaded. Upload a time series for it." in await finding_texts(
+        user, "draft-findings")
+
+    await switch_to(user, "de")
+
+    await user.should_see("Wärmebedarf: keine Zeitreihe hochgeladen.")
+    await user.should_not_see("Heat demand: no time series uploaded.")
+
+    await switch_to(user, "en")
+
+    await user.should_see("Heat demand: no time series uploaded.")
+
+
+async def test_the_message_follows_the_components_that_are_chosen_and_their_german_names(user: User):
+    await open_page(user, "de")
+    await choose_template(user, "Gas heating")
+
+    user.find(marker="component-battery").click()
+
+    await user.should_see("Batteriespeicher: Der Modus 'fest' braucht eine Größe über 0")
+    await user.should_see("Batteriespeicher kann nirgends geladen werden.")
+
+
+async def test_the_messages_about_an_opened_file_are_in_german(user: User):
+    await open_page(user, "de")
+    await open_example(user, "with_problems")
+
+    texts = await finding_texts(user, "findings")
+
+    assert any(t.startswith("Strombedarf: Die Zeitreihe hat 10 Werte, aber der gewählte Zeitraum braucht 24.")
+               for t in texts)
+    assert any(t.startswith("PV-Anlage: Das Erzeugungsprofil hat Werte bis 3,00,") for t in texts)
+    assert any(t.startswith("Überschüssiger Strom aus PV-Anlage kann nicht exportiert werden.") for t in texts)
+    assert "Beheben Sie die Fehler oben, bevor die Optimierung starten kann." in texts
+
+
+async def test_the_messages_about_an_opened_file_are_worded_again_when_the_language_changes(user: User):
+    await open_page(user)
+    await open_example(user, "with_problems")
+    await user.should_see("Electricity demand: the time series has 10 values")
+
+    await switch_to(user, "de")
+
+    await user.should_see("Strombedarf: Die Zeitreihe hat 10 Werte")
+    await user.should_not_see("Electricity demand: the time series has 10 values")
+
+
+async def test_a_component_with_a_name_of_its_own_is_named_that_way_in_a_german_message(user: User):
+    await open_page(user, "de")
+    scenario = json.loads((EXAMPLES / "with_problems.json").read_text(encoding="utf-8"))
+    for component in scenario["components"]:
+        if component["id"] == "pv":
+            component["name"] = "PV Dach Süd"
+    scenario["series"]["electricity_demand"]["values"] = [0.01] * 24
+
+    await field(user, "upload").handle_uploads(
+        [SmallFileUpload("own_name.json", "application/json", json.dumps(scenario).encode())])
+
+    await user.should_see("PV Dach Süd: Das Erzeugungsprofil hat Werte bis 3,00")

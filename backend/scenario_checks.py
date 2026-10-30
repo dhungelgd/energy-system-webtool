@@ -3,7 +3,8 @@
 These look at what the time series say, not at the structure (that is checked when
 a scenario is created) and not at whether the engine can run it (see
 `service_v2.py`). All of them are warnings: the scenario can still be run, but the
-result is probably not what the user means.
+result is probably not what the user means. The findings are codes plus parameters
+(see findings.py); the sentences are in the catalogs of backend/i18n.
 
 - A demand profile of "shares of the annual demand" has to add up to 1 over a year.
   Only a whole year can be tested; a part of a year says nothing about the total.
@@ -13,8 +14,7 @@ result is probably not what the user means.
 This module does not use Streamlit or NiceGUI, so any frontend can use it.
 """
 
-from backend.blocks import BLOCKS
-from backend.system_check import Finding
+from backend.findings import Fixed, coded, reference
 
 FULL_YEAR = 8760
 SHARE_TOLERANCE = 0.01              # a profile that adds up to 1 within one percent is fine
@@ -57,13 +57,7 @@ def _demand_profile(component, scenario):
     if abs(total - 1.0) <= SHARE_TOLERANCE:
         return []
 
-    absolute = BLOCKS["demand"].fields[0].option_labels["absolute"]
-    return [Finding(
-        "warning",
-        f"{component.name}: the demand profile adds up to {total:.3f}, but shares of the "
-        f"annual demand must add up to 1 over a year. Check the profile, or choose "
-        f"'{absolute}'.",
-    )]
+    return [coded("warning", "profile_shares", component=reference(component), total=Fixed(total, 3))]
 
 
 def _generation_profile(component, scenario):
@@ -73,9 +67,4 @@ def _generation_profile(component, scenario):
     if not numbers or max(numbers) <= 1.0 + CAPACITY_FACTOR_TOLERANCE:
         return []
 
-    return [Finding(
-        "warning",
-        f"{component.name}: the generation profile has values up to {max(numbers):.2f}, but a "
-        f"capacity factor is at most 1 (output per installed kW). A profile downloaded for a "
-        f"larger system has to be divided by its size.",
-    )]
+    return [coded("warning", "capacity_factor", component=reference(component), maximum=Fixed(max(numbers), 2))]

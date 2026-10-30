@@ -15,10 +15,10 @@ This module does not use Streamlit or NiceGUI, so any frontend can use it.
 
 from backend import service
 from backend.component_specs import INFO
+from backend.findings import Finding
 from backend.scenario_checks import check_data
 from backend.scenario_convert import engine_gaps, scenario_to_v1
 from backend.service import ScenarioNotReady
-from backend.system_check import Finding
 
 
 def check(scenario, labels=None):
