@@ -11,6 +11,7 @@ there is one source for it.
 
 Parameters:
   ComponentRef(key)   a component by its key; worded as its name in the language of the reader
+  SettingRef(...)     a setting of a component; worded as its label in the form (with words of its own)
   Fixed(value, n)     a number with n decimals (0.900 or 0,900)
   a list              joined with "and" / "und"
   a float             written with a decimal point or comma
@@ -46,6 +47,18 @@ class ComponentRef:
         if names is not None:
             return names.get(self.key, self.key)
         return tr(f"component.{self.key}.label")
+
+
+@dataclass(frozen=True)
+class SettingRef:
+    """A setting of a component: its block, its key (or path) and the template it belongs to."""
+
+    block: str
+    key: str
+    template: str = None
+
+    def render(self, tr, names=None):
+        return tr.own(f"field.{self.block}.{self.key}.label", self.template)
 
 
 @dataclass(frozen=True)

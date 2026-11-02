@@ -107,15 +107,14 @@ async def test_a_pv_system_gets_a_card_with_its_settings(user: User):
     assert exists(user, MODE) and exists(user, CAPACITY)
 
 
-async def test_only_the_components_with_a_form_get_one(user: User):
+async def test_every_component_of_the_full_system_has_a_form(user: User):
     await open_page(user)
 
     await choose_template(user, "Full system")
 
     keys = ["demand", "heat_demand", "grid", "grid_feedin", "gas_import", "pv", "wind",
             "gas_boiler", "heat_pump", "heating_rod", "chp", "battery", "heat_storage"]
-    assert sorted(key for key in keys if exists(user, f"form-{key}")) == sorted(
-        ["demand", "heat_demand", "grid", "grid_feedin", "gas_import", "pv", "wind"])
+    assert [key for key in keys if not exists(user, f"form-{key}")] == []
 
 
 async def test_unticking_the_pv_system_removes_its_form_and_ticking_it_again_starts_with_the_defaults(user: User):
@@ -405,7 +404,7 @@ async def test_the_table_and_the_check_follow_the_form_in_german(user: User):
 async def test_the_page_says_which_forms_there_are_so_far(user: User):
     await open_page(user)
 
-    await user.should_see("settings forms exist for the demands, the grid, the feed-in, the gas import")
+    await user.should_see("every component has its settings form")
 
 
 async def test_the_unit_of_the_number_field_is_an_input_suffix_not_a_separate_text(user: User):
@@ -463,7 +462,7 @@ async def test_the_heat_demand_and_the_gas_import_have_their_forms(user: User):
     await user.should_see("Annual heat demand")
     await user.should_see("Gas price")
     assert field(user, HEAT).value == 90000 and field(user, GAS).value == 0.1
-    assert not exists(user, "form-gas_boiler")                       # its form follows with the converters
+    assert exists(user, "form-gas_boiler")
 
 
 async def test_a_demand_in_kw_has_no_annual_demand_and_it_comes_back_with_its_value(user: User):
@@ -549,3 +548,182 @@ async def test_a_price_that_was_typed_stays_when_the_language_changes(user: User
 
     await user.should_see("Strompreis")
     assert field(user, PRICE).value == 0.35
+
+
+# ---------------------------------------------------------------------------
+# the converters and the storages
+# ---------------------------------------------------------------------------
+
+EFFICIENCY = "field-gas_boiler-conversion-outputs.heat.efficiency"
+ROD = "field-heating_rod-conversion-outputs.heat.efficiency"
+COP = "field-heat_pump-conversion-outputs.heat.ratio"
+ELECTRICAL = "field-chp-conversion-outputs.electricity.efficiency"
+THERMAL = "field-chp-conversion-outputs.heat.efficiency"
+CHARGE = "field-battery-storage-efficiency_charge"
+BATTERY_SIZE = "field-battery-capacity-capacity"
+BATTERY_MODE = "field-battery-capacity-mode"
+
+
+async def test_the_gas_boiler_has_its_efficiency_and_its_size(user: User):
+    await open_page(user)
+
+    await choose_template(user, "Gas heating")
+
+    await user.should_see("Settings of Gas boiler")
+    await user.should_see("The share of the gas energy that becomes heat.")
+    await user.should_see("The heat output of the boiler.")
+    assert field(user, EFFICIENCY).value == 90 and field(user, EFFICIENCY).props["suffix"] == "%"
+    assert field(user, EFFICIENCY).props["max"] == 100
+
+
+async def test_an_efficiency_of_0_or_above_100_is_refused_with_its_range(user: User):
+    await open_page(user)
+    await choose_template(user, "Gas heating")
+
+    field(user, EFFICIENCY).value = 0.0
+    await settle()
+    assert field(user, EFFICIENCY).error == "Enter a number above 0 and at most 100."
+
+    field(user, EFFICIENCY).value = 101.0
+    await settle()
+    assert field(user, EFFICIENCY).error == "Enter a number above 0 and at most 100."
+
+
+async def test_an_efficiency_that_is_cleared_is_asked_for_by_the_check(user: User):
+    await open_page(user)
+    await choose_template(user, "Gas heating")
+    await user.should_not_see("Gas boiler: Efficiency is not filled in.")
+
+    user.find(marker=EFFICIENCY).clear()
+
+    await user.should_see("Gas boiler: Efficiency is not filled in.")
+
+    user.find(marker=EFFICIENCY).type("85")
+
+    await user.should_not_see("Gas boiler: Efficiency is not filled in.")
+
+
+async def test_the_heat_pump_asks_for_the_cop_and_the_heating_rod_for_its_efficiency(user: User):
+    await open_page(user)
+
+    await choose_template(user, "Heat pump + heating rod")
+
+    await user.should_see("Settings of Heat pump")
+    await user.should_see("Settings of Heating rod")
+    assert field(user, COP).value == 3.5 and field(user, COP).props["suffix"] == "kWh heat per kWh electricity"
+    assert field(user, ROD).value == 99
+    field(user, COP).value = 0.0
+    await settle()
+    assert field(user, COP).error == "Enter a number above 0."
+
+
+async def test_the_two_efficiencies_of_the_chp_plant_cannot_be_more_than_100_together(user: User):
+    await open_page(user)
+    await choose_template(user, "CHP system")
+    assert field(user, ELECTRICAL).value == 35 and field(user, THERMAL).value == 50
+    await user.should_see("Thermal efficiency")
+    await user.should_see("The electrical output of the CHP plant.")
+
+    field(user, ELECTRICAL).value = 60.0                                         # 60 + 50 would be 110
+    await settle()
+
+    assert field(user, ELECTRICAL).error == "The efficiencies together cannot be more than 100 %."
+
+    # it was not taken over: drawn again from what is stored, the form shows the 35
+    await switched_to(user, "de")
+    assert field(user, ELECTRICAL).value == 35
+
+
+async def test_a_chp_efficiency_that_fits_is_taken_over(user: User):
+    await open_page(user)
+    await choose_template(user, "CHP system")
+
+    field(user, ELECTRICAL).value = 50.0                                         # 50 + 50 = 100
+    await settle()
+    await switched_to(user, "de")
+
+    assert field(user, ELECTRICAL).error is None and field(user, ELECTRICAL).value == 50
+
+
+async def test_the_battery_is_measured_in_kwh_and_has_its_storage_settings(user: User):
+    await open_page(user)
+
+    await choose_template(user, "PV + battery")
+
+    await user.should_see("Settings of Battery storage")
+    await user.should_see("The energy that the battery can store.")
+    assert field(user, BATTERY_SIZE).props["suffix"] == "kWh"
+    assert field(user, "field-battery-storage-c_rate").value == 0.5
+    assert field(user, "field-battery-storage-c_rate").props["suffix"] == "times the capacity per hour"
+    assert field(user, CHARGE).value == 95 and field(user, "field-battery-storage-loss_rate").props["suffix"] == "% per hour"
+    assert not exists(user, "field-battery-storage-initial_level")             # the engine ignores it
+
+
+async def test_the_size_of_the_battery_is_in_the_table_in_kwh_and_the_investment_is_per_kwh(user: User):
+    await open_page(user)
+    await choose_template(user, "PV + battery")
+
+    user.find(marker=BATTERY_SIZE).clear().type("40")
+    await wait_for_row_size(user, ("Battery storage",), "40 kWh")
+
+    field(user, BATTERY_MODE).value = "invest"
+    await user.should_see(marker="field-battery-capacity-capex")
+
+    assert field(user, "field-battery-capacity-capex").props["suffix"] == "€ per kWh"
+    assert field(user, "field-battery-capacity-maximum").props["suffix"] == "kWh"
+    await user.should_see("Maximum capacity")
+
+
+async def test_a_storage_efficiency_that_is_cleared_is_asked_for_by_the_check(user: User):
+    await open_page(user)
+    await choose_template(user, "PV + battery")
+
+    user.find(marker=CHARGE).clear()
+
+    await user.should_see("Battery storage: Charging efficiency is not filled in.")
+
+
+async def test_the_heat_storage_has_its_own_c_rate(user: User):
+    await open_page(user)
+    await choose_template(user, "Full system")
+
+    assert field(user, "field-heat_storage-storage-c_rate").value == 0.25
+    await user.should_see("The heat that the heat storage can hold.")
+
+
+async def test_the_forms_of_the_converters_and_the_storages_are_in_german(user: User):
+    await open_page(user, "de")
+
+    await choose_template(user, "Full system")
+
+    await user.should_see("Einstellungen: Gaskessel")
+    await user.should_see("Die Wärmeleistung des Kessels.")
+    await user.should_see("Leistungszahl (COP)")
+    await user.should_see("Thermischer Wirkungsgrad")
+    await user.should_see("Installierte Kapazität")
+    await user.should_see("Lade-Wirkungsgrad")
+    assert field(user, COP).props["suffix"] == "kWh Wärme pro kWh Strom"
+    assert field(user, BATTERY_SIZE).props["suffix"] == "kWh"
+    assert field(user, "field-battery-storage-loss_rate").props["suffix"] == "% pro Stunde"
+
+
+async def test_an_input_that_does_not_fit_and_a_missing_value_are_explained_in_german(user: User):
+    await open_page(user, "de")
+    await choose_template(user, "Gas heating")
+
+    field(user, EFFICIENCY).value = 0.0
+    await settle()
+    assert field(user, EFFICIENCY).error == "Geben Sie eine Zahl über 0 und höchstens 100 ein."
+
+    user.find(marker=EFFICIENCY).clear()
+    await user.should_see("Gaskessel: Wirkungsgrad ist nicht ausgefüllt.")
+
+
+async def test_the_two_efficiencies_of_the_chp_plant_in_german(user: User):
+    await open_page(user, "de")
+    await choose_template(user, "CHP system")
+
+    field(user, ELECTRICAL).value = 60.0
+    await settle()
+
+    assert field(user, ELECTRICAL).error == "Die Wirkungsgrade zusammen dürfen nicht mehr als 100 % betragen."

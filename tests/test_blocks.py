@@ -2,8 +2,8 @@
 
 import pytest
 
-from backend.blocks import BLOCKS, conversion_problems, series_references
-from backend.component_specs import PV
+from backend.blocks import BLOCKS, BlockSpec, conversion_problems, series_references
+from backend.component_specs import PV, FieldSpec
 
 
 def problems(block, values, owner="x"):
@@ -207,3 +207,39 @@ def test_series_references():
     assert series_references("conversion", {"outputs": {"heat": {"ratio_series": "cop"}}}) == ["cop"]
     assert series_references("capacity", {"mode": "fixed"}) == []
     assert series_references("profile", {"series": None}) == []
+
+
+# ---------------------------------------------------------------------------
+# a number that has to be above its minimum
+# ---------------------------------------------------------------------------
+
+def above_zero_block():
+    field = FieldSpec(key="x", label="X", kind="number", unit="kW", minimum=0, minimum_exclusive=True, maximum=10)
+    return BlockSpec(name="demo", label="Demo", kinds=("source",), fields=(field,))
+
+
+def test_a_number_that_has_to_be_above_the_minimum_cannot_be_the_minimum():
+    block = above_zero_block()
+
+    assert block.problems({"x": 0}, "o") == ["o: Demo: X must be above 0 kW"]
+    assert block.problems({"x": -1}, "o") == ["o: Demo: X must be above 0 kW"]
+    assert block.problems({"x": 0.001}, "o") == []
+    assert block.problems({"x": 10}, "o") == []
+    assert block.problems({"x": 10.5}, "o") == ["o: Demo: X must be at most 10 kW"]
+
+
+def test_an_ordinary_minimum_can_be_reached():
+    block = BlockSpec(name="demo", label="Demo", kinds=("source",),
+                      fields=(FieldSpec(key="x", label="X", kind="number", minimum=0),))
+
+    assert block.problems({"x": 0}, "o") == []
+    assert block.problems({"x": -1}, "o") == ["o: Demo: X must be at least 0"]
+
+
+def test_the_conversion_block_offers_the_efficiencies_and_the_cop_that_the_forms_ask_for():
+    fields = {f.key: f for f in BLOCKS["conversion"].fields}
+
+    assert list(fields) == ["outputs.electricity.efficiency", "outputs.heat.efficiency", "outputs.heat.ratio"]
+    assert all(f.minimum == 0 and f.minimum_exclusive for f in fields.values())        # the same rule as conversion_problems
+    assert (fields["outputs.heat.efficiency"].maximum, fields["outputs.heat.ratio"].maximum) == (100, None)
+    assert fields["outputs.heat.ratio"].unit == "kWh heat per kWh electricity"

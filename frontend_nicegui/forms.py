@@ -14,20 +14,29 @@ A component can have words of its own for a setting: the text "field.costs.varia
 label@grid" is used for the grid instead of the general "field.costs.variable_costs.label"
 (there it says "Electricity price", not "Variable costs").
 
+The key of a setting can be a path ("outputs.heat.efficiency"): the conversion keeps its
+values for each output in a dictionary.
+
 An input is stored in the component (`set_value`), or refused with a message for the
 reader; what is refused is never stored, so that a scenario made from the draft is
-always valid. An empty number is stored as "not filled in" (the key is removed): that
-is not wrong, the system check says what is still missing.
+always valid. That includes what only a few settings together can get wrong (the
+efficiencies of a CHP plant cannot add up to more than 100 %). An empty number is stored
+as "not filled in" (the key is removed): that is not wrong, the system check says what is
+still missing.
 """
 
+import copy
 import math
 from dataclasses import dataclass, field
 
-from backend.blocks import BLOCKS
+from backend.blocks import BLOCKS, conversion_problems, get_path, put_path
 from backend.i18n import ENGLISH, Msg
 
 # component template -> {block: the settings of it that the form shows (None: all of them)}
-# (the other components follow)
+# The settings of how a component works come first and its size after them, because the
+# size has a section of its own (Investment) that would otherwise sit between them.
+STORAGE = ("c_rate", "efficiency_charge", "efficiency_discharge", "loss_rate")      # not initial_level: the engine ignores it
+
 FORMS = {
     "pv": {"capacity": None},
     "wind": {"capacity": None},
@@ -36,6 +45,12 @@ FORMS = {
     "grid": {"costs": ("variable_costs",)},
     "grid_feedin": {"costs": ("revenue",)},
     "gas_import": {"costs": ("variable_costs",)},
+    "gas_boiler": {"conversion": ("outputs.heat.efficiency",), "capacity": None},
+    "heating_rod": {"conversion": ("outputs.heat.efficiency",), "capacity": None},
+    "chp": {"conversion": ("outputs.electricity.efficiency", "outputs.heat.efficiency"), "capacity": None},
+    "heat_pump": {"conversion": ("outputs.heat.ratio",), "capacity": None},        # a COP series comes with the upload
+    "battery": {"storage": STORAGE, "capacity": None},
+    "heat_storage": {"storage": STORAGE, "capacity": None},
 }
 
 SECTIONS = ("basic", "investment", "advanced")
@@ -52,9 +67,7 @@ def form_blocks(component):
 def _text(tr, base, part, template):
     """A text of a setting: the one of the component if it has one of its own, else the general one."""
 
-    specific = f"{base}.{part}@{template}"
-
-    return tr(specific) if template and tr.has(specific) else tr(f"{base}.{part}")
+    return tr.own(f"{base}.{part}", template)
 
 
 def spec_of(block_name, key):
@@ -83,7 +96,6 @@ class FormField:
     step: object = None
     options: dict = field(default_factory=dict)      # choice: {value: label}
     section: str = "basic"
-    hint: object = None                 # a Msg: what to say about a number that does not fit
 
 
 def range_hint(spec):
@@ -91,6 +103,10 @@ def range_hint(spec):
 
     low, high = spec.minimum, spec.maximum
 
+    if low is not None and spec.minimum_exclusive:
+        if high is not None:
+            return Msg("form.hint.above_range", min=float(low), max=float(high))
+        return Msg("form.hint.above", min=float(low))
     if low is not None and high is not None:
         return Msg("form.hint.range", min=float(low), max=float(high))
     if low is not None:
@@ -114,7 +130,7 @@ def form_fields(component, block_name, tr=ENGLISH):
             continue
 
         base = f"field.{block_name}.{spec.key}"
-        value = values.get(spec.key)
+        value = get_path(values, spec.key)
         if value is None and spec.kind == "choice":
             value = spec.default                     # a choice that was not made is the default one
 
@@ -131,7 +147,6 @@ def form_fields(component, block_name, tr=ENGLISH):
             step=spec.step,
             options={option: _text(tr, base, f"option.{option}", template) for option in spec.options},
             section=spec.section,
-            hint=range_hint(spec) if spec.kind == "number" else None,
         ))
 
     return fields
@@ -149,8 +164,30 @@ def sections(fields, tr=ENGLISH):
     ]
 
 
-def problem(block_name, key, raw):
-    """What is wrong with an input, as a Msg, or None if it can be stored. Nothing is stored here."""
+def _block_problem(component, block_name, key, value):
+    """What an input gets wrong together with the other settings of its component (a Msg), or None."""
+
+    if component is None or block_name != "conversion":
+        return None
+
+    candidate = copy.deepcopy(component.blocks.get(block_name, {}))
+    put_path(candidate, key, value)
+    carriers = {c.carrier for c in component.connections if c.direction == "out"}
+
+    if not conversion_problems(candidate, carriers, component.id):
+        return None
+
+    efficiencies = [
+        entry["efficiency"] for entry in candidate.get("outputs", {}).values()
+        if isinstance(entry, dict) and isinstance(entry.get("efficiency"), (int, float))
+    ]
+    return Msg("form.hint.efficiency_sum") if sum(efficiencies) > 100 + 1e-9 else Msg("form.hint.invalid")
+
+
+def problem(block_name, key, raw, component=None):
+    """What is wrong with an input, as a Msg, or None if it can be stored. Nothing is stored here.
+
+    With the component, it is also checked against its other settings."""
 
     spec = spec_of(block_name, key)
 
@@ -165,9 +202,11 @@ def problem(block_name, key, raw):
     if value is None:
         return None                                   # empty: not filled in yet
 
-    if (spec.minimum is not None and value < spec.minimum) or (spec.maximum is not None and value > spec.maximum):
+    too_low = spec.minimum is not None and (value <= spec.minimum if spec.minimum_exclusive else value < spec.minimum)
+    if too_low or (spec.maximum is not None and value > spec.maximum):
         return range_hint(spec)
-    return None
+
+    return _block_problem(component, block_name, key, value)
 
 
 _WRONG = object()
@@ -196,20 +235,12 @@ def _number(raw):
 def set_value(component, block_name, key, raw):
     """Store an input in the component. Returns None, or a Msg that says why it was refused."""
 
-    found = problem(block_name, key, raw)
+    found = problem(block_name, key, raw, component)
     if found is not None:
         return found
 
     spec = spec_of(block_name, key)
     block = component.blocks.setdefault(block_name, {})
 
-    if spec.kind == "choice":
-        block[key] = raw
-        return None
-
-    value = _number(raw)
-    if value is None:
-        block.pop(key, None)
-    else:
-        block[key] = value
+    put_path(block, key, raw if spec.kind == "choice" else _number(raw))
     return None

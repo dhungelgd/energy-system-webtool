@@ -183,6 +183,16 @@ def test_a_message_is_worded_in_the_language_of_the_reader():
     assert ENGLISH.message(msg).startswith("The optimization could not")
 
 
+def test_a_text_of_its_own_is_used_for_its_owner_and_the_general_text_for_everybody_else():
+    english = ENGLISH
+
+    assert english.own("field.costs.variable_costs.label", "grid") == "Electricity price"
+    assert english.own("field.costs.variable_costs.label", "gas_import") == "Gas price"
+    assert english.own("field.costs.variable_costs.label", "pv") == "Variable costs"
+    assert english.own("field.costs.variable_costs.label", None) == "Variable costs"
+    assert Translator("de").own("field.costs.variable_costs.label", "grid") == "Strompreis"
+
+
 def test_a_decimal_number_in_a_message_is_written_the_way_of_the_language():
     msg = Msg("form.hint.range", min=0.5, max=100.0)
 

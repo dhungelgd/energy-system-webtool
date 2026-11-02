@@ -16,7 +16,7 @@ This module does not use Streamlit or NiceGUI, so any frontend can use it.
 from backend import service
 from backend.component_specs import INFO
 from backend.findings import Finding
-from backend.scenario_checks import check_data
+from backend.scenario_checks import check_data, check_required
 from backend.scenario_convert import engine_gaps, scenario_to_v1
 from backend.service import ScenarioNotReady
 
@@ -24,8 +24,9 @@ from backend.service import ScenarioNotReady
 def check(scenario, labels=None):
     """Errors and warnings for a ScenarioV2 (errors first).
 
-    An error stops the run: something the engine cannot run, or a mistake the
-    system check finds. A warning does not: the data look suspicious.
+    An error stops the run: something the engine cannot run, a setting that is not
+    filled in, or a mistake the system check finds. A warning does not: the data look
+    suspicious.
 
     labels: readable names for the components, by template key. The names of the
     templates are the default.
@@ -36,6 +37,7 @@ def check(scenario, labels=None):
 
     gaps = engine_gaps(scenario)
     findings = [Finding("error", gap) for gap in gaps]
+    findings.extend(check_required(scenario))
     findings.extend(check_data(scenario))
 
     if not gaps:

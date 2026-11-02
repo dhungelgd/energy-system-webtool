@@ -39,6 +39,7 @@ class FieldSpec(BaseModel):
     unit: str = ""
     default: Union[float, str, None] = None
     minimum: Union[float, None] = None
+    minimum_exclusive: bool = False  # the value must be above the minimum, not just at least it
     maximum: Union[float, None] = None
     step: Union[float, None] = None
     help: str = ""
@@ -53,6 +54,8 @@ class FieldSpec(BaseModel):
 
     @model_validator(mode="after")
     def _consistent(self):
+        if self.minimum_exclusive and self.minimum is None:
+            raise ValueError(f"{self.key}: a minimum that is excluded needs a minimum")
         if self.kind == "choice":
             if not self.options:
                 raise ValueError(f"{self.key}: a choice needs options")
@@ -420,7 +423,7 @@ PV = ComponentSpec(
             key="maximum", label="Maximum size", kind="number", unit="kW",
             minimum=0, step=1, section="investment",
             visible_if={"mode": ("invest",)},
-            help="Upper limit for the optimizer, for example from the roof area. "
+            help="Upper limit for the optimizer, for example from the available space. "
                  "Leave empty for no limit.",
         ),
         FieldSpec(

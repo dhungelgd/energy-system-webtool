@@ -74,6 +74,13 @@ class Translator:
         params.setdefault("count", count)
         return self(f"{key}.{'one' if count == 1 else 'other'}", **params)
 
+    def own(self, key, owner):
+        """A text with words of its own for an owner (the text 'key@owner'), else the general text 'key'."""
+
+        specific = f"{key}@{owner}"
+
+        return self(specific) if owner and self.has(specific) else self(key)
+
     def message(self, msg):
         """The text of a Msg. A decimal number in its parameters is written the way of the language."""
 

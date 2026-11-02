@@ -51,7 +51,6 @@ def invest(component):
 # which components have a form
 # ---------------------------------------------------------------------------
 
-
 def test_these_components_have_a_form_and_these_settings_are_in_it():
     assert FORMS == {
         "pv": {"capacity": None},
@@ -61,18 +60,36 @@ def test_these_components_have_a_form_and_these_settings_are_in_it():
         "grid": {"costs": ("variable_costs",)},
         "grid_feedin": {"costs": ("revenue",)},
         "gas_import": {"costs": ("variable_costs",)},
+        "gas_boiler": {"conversion": ("outputs.heat.efficiency",), "capacity": None},
+        "heating_rod": {"conversion": ("outputs.heat.efficiency",), "capacity": None},
+        "chp": {"conversion": ("outputs.electricity.efficiency", "outputs.heat.efficiency"), "capacity": None},
+        "heat_pump": {"conversion": ("outputs.heat.ratio",), "capacity": None},
+        "battery": {"storage": ("c_rate", "efficiency_charge", "efficiency_discharge", "loss_rate"), "capacity": None},
+        "heat_storage": {"storage": ("c_rate", "efficiency_charge", "efficiency_discharge", "loss_rate"),
+                         "capacity": None},
     }
+
+
+def test_every_component_that_can_be_chosen_has_a_form():
+    from backend.component_specs import INFO
+
+    assert set(FORMS) == set(INFO)
 
 
 def test_the_blocks_of_a_form():
     assert has_form(pv()) and form_blocks(pv()) == ("capacity",)
     assert form_blocks(new_component("grid")) == ("costs",)
     assert form_blocks(new_component("demand")) == ("demand",)
+    assert form_blocks(new_component("battery")) == ("storage", "capacity")        # how it works first, then its size
+    assert form_blocks(new_component("chp")) == ("conversion", "capacity")
 
 
-@pytest.mark.parametrize("key", ["battery", "heat_storage", "gas_boiler", "heating_rod", "chp", "heat_pump"])
-def test_a_component_without_a_form_yet_has_no_blocks_to_draw(key):
-    assert not has_form(new_component(key)) and form_blocks(new_component(key)) == ()
+def test_a_component_that_is_not_one_of_the_templates_has_no_form():
+    custom = Component(id="x", name="Electrolyser", template=None, kind="converter",
+                       connections=[{"carrier": "electricity", "direction": "in"},
+                                    {"carrier": "hydrogen", "direction": "out"}], blocks={})
+
+    assert not has_form(custom) and form_blocks(custom) == ()
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +149,7 @@ def test_a_number_with_a_unit_and_a_range():
     assert (capex.label, capex.unit, capex.kind) == ("Investment cost", "€ per kW", "number")
     assert (capex.value, capex.minimum, capex.maximum, capex.step) == (1200.0, 0.0, None, 50.0)
     assert capex.section == "investment" and "quote" in capex.help
-    assert capex.hint == Msg("form.hint.min", min=0.0)
+    assert range_hint(spec_of("capacity", "capex")) == Msg("form.hint.min", min=0.0)
 
 
 def test_a_percentage_is_shown_as_a_percentage_from_0_to_100():
@@ -140,13 +157,13 @@ def test_a_percentage_is_shown_as_a_percentage_from_0_to_100():
 
     assert opex.unit == "% of the investment per year" and opex.value == 2.0
     assert (opex.minimum, opex.maximum) == (0.0, 100.0)
-    assert opex.hint == Msg("form.hint.range", min=0.0, max=100.0)
+    assert range_hint(spec_of("capacity", "opex")) == Msg("form.hint.range", min=0.0, max=100.0)
 
 
 def test_every_setting_with_a_percentage_has_the_range_0_to_100():
     percentages = [(name, f.key) for name, block in BLOCKS.items() for f in block.fields if f.unit.startswith("%")]
 
-    assert len(percentages) == 7                  # a new one should be looked at: is its range 0 to 100?
+    assert len(percentages) == 9                  # a new one should be looked at: is its range 0 to 100?
     for name, key in percentages:
         spec = spec_of(name, key)
         assert (spec.minimum, spec.maximum) == (0, 100), f"{name}.{key}"
@@ -155,7 +172,7 @@ def test_every_setting_with_a_percentage_has_the_range_0_to_100():
 def test_a_choice_has_its_options_worded_for_the_reader():
     mode = field_of(pv(), "mode")
 
-    assert mode.kind == "choice" and mode.value == "fixed" and mode.hint is None
+    assert mode.kind == "choice" and mode.value == "fixed"
     assert mode.options == {"fixed": "I enter a fixed size", "invest": "The optimizer chooses the size"}
 
 
@@ -434,7 +451,7 @@ def test_the_demand_asks_for_the_profile_and_the_annual_demand():
     assert fields["profile_type"].kind == "choice" and fields["profile_type"].value == "annual_share"
     assert (fields["annual_demand"].label, fields["annual_demand"].unit) == ("Annual electricity demand", "kWh per year")
     assert fields["annual_demand"].value == 30000.0
-    assert fields["annual_demand"].hint == Msg("form.hint.min", min=0.0)
+    assert range_hint(spec_of("demand", "annual_demand")) == Msg("form.hint.min", min=0.0)
 
 
 def test_the_heat_demand_says_heat():
@@ -497,10 +514,11 @@ def test_the_wind_turbine_has_the_form_of_the_pv_system_with_its_own_help():
 def test_a_text_of_its_own_belongs_to_a_setting_that_the_form_of_that_component_shows():
     own = [key for key in EN_CATALOG if "@" in key]
 
-    assert len(own) >= 11
+    assert len(own) == 35                 # a new one belongs to a setting that the form shows
     for key in own:
         generic, template = key.split("@")
-        _, block, setting, *_ = generic.split(".")
+        _, block, rest = generic.split(".", 2)
+        setting = rest.split(".option.")[0] if ".option." in rest else rest.rsplit(".", 1)[0]     # a setting can be a path
         shown = FORMS[template][block]
         assert generic in EN_CATALOG and key in DE_CATALOG, key
         assert shown is None or setting in shown, key
@@ -517,15 +535,19 @@ def test_the_help_of_the_size_choice_says_what_a_fixed_size_means_for_the_costs(
 # the forms and the engine agree
 # ---------------------------------------------------------------------------
 
-SPECIAL = {("demand", "profile_type"), ("demand", "annual_demand")}          # read by the adapter, not a plain link
+SPECIAL = {                                   # read by the adapter, not through a plain link
+    "demand": {("demand", "profile_type"), ("demand", "annual_demand")},
+    "heat_demand": {("demand", "profile_type"), ("demand", "annual_demand")},
+    "heat_pump": {("conversion", "outputs.heat.ratio")},          # the COP series comes with the upload
+}
 
 
 def read_by_the_engine(template):
     """The settings of a component that the adapter to the engine reads (the ones with a name of their own)."""
 
-    plain = {(link.block, link.field) for link in TEMPLATES[template].links if "." not in link.field}
+    plain = {(link.block, link.field) for link in TEMPLATES[template].links}
 
-    return plain | (SPECIAL if template in ("demand", "heat_demand") else set())
+    return plain | SPECIAL.get(template, set())
 
 
 def shown_in_some_mode(template):
@@ -556,15 +578,19 @@ def test_whatever_the_forms_offer_the_engine_can_run():
 
     for template in FORMS:
         component = draft.component(template)
-        for block in form_blocks(component):
-            for choice in [spec for spec in BLOCKS[block].fields if spec.kind == "choice"]:
-                for pick in choice.options:
-                    set_value(component, block, choice.key, pick)
-                    for (_, key) in shown_in_some_mode(template):
-                        spec = spec_of(block, key)
-                        if spec.kind == "number":
-                            set_value(component, block, key, max(spec.minimum or 0, 1))
-                    assert engine_gaps(draft.scenario()) == [], (template, pick)
+        offered = sorted(shown_in_some_mode(template))
+
+        for block, key in offered:
+            spec = spec_of(block, key)
+            if spec.kind == "number":
+                assert set_value(component, block, key, max(spec.minimum or 0, 1)) is None
+
+        assert engine_gaps(draft.scenario()) == [], template
+        for block, key in offered:
+            spec = spec_of(block, key)
+            for pick in spec.options:                              # every choice that is offered
+                set_value(component, block, key, pick)
+                assert engine_gaps(draft.scenario()) == [], (template, key, pick)
 
 
 def test_what_is_typed_in_the_forms_reaches_the_settings_of_the_engine():
@@ -575,6 +601,11 @@ def test_what_is_typed_in_the_forms_reaches_the_settings_of_the_engine():
         ("gas_import", "costs", "variable_costs", 0.12), ("demand", "demand", "annual_demand", 45000),
         ("heat_demand", "demand", "annual_demand", 100000), ("wind", "capacity", "capacity", 20),
         ("pv", "capacity", "capacity", 50),
+        ("gas_boiler", "conversion", "outputs.heat.efficiency", 85), ("heating_rod", "conversion", "outputs.heat.efficiency", 98),
+        ("chp", "conversion", "outputs.electricity.efficiency", 30), ("chp", "conversion", "outputs.heat.efficiency", 55),
+        ("heat_pump", "conversion", "outputs.heat.ratio", 4.2),
+        ("battery", "storage", "c_rate", 0.8), ("battery", "storage", "efficiency_charge", 90),
+        ("heat_storage", "storage", "loss_rate", 0.2), ("battery", "capacity", "capacity", 40),
     ]:
         assert set_value(draft.component(template), block, key, raw) is None
 
@@ -585,6 +616,11 @@ def test_what_is_typed_in_the_forms_reaches_the_settings_of_the_engine():
     assert settings["demand"]["scaling_factor"] == 45000 and settings["heat_demand"]["scaling_factor"] == 100000
     assert (settings["wind"]["mode"], settings["wind"]["capacity"]) == ("fixed", 20)
     assert settings["pv"]["capacity"] == 50
+    assert settings["gas_boiler"]["efficiency"] == 0.85 and settings["heating_rod"]["efficiency"] == 0.98
+    assert (settings["chp"]["efficiency_el"], settings["chp"]["efficiency_th"]) == (0.30, 0.55)
+    assert (settings["heat_pump"]["cop_mode"], settings["heat_pump"]["cop_value"]) == ("constant", 4.2)
+    assert (settings["battery"]["c_rate"], settings["battery"]["efficiency_charge"]) == (0.8, 0.90)
+    assert settings["heat_storage"]["loss_rate"] == 0.002 and settings["battery"]["capacity"] == 40
 
 
 def test_a_demand_in_kw_reaches_the_engine_with_a_factor_of_1():
@@ -628,3 +664,211 @@ def test_whatever_is_typed_into_any_form_stays_a_valid_scenario():
         except ValueError:
             assert spec.kind == "choice" and raw == "dunno"
         draft.scenario()                                          # must never raise
+
+
+# ---------------------------------------------------------------------------
+# the converters and the storages
+# ---------------------------------------------------------------------------
+
+def test_the_boiler_and_the_heating_rod_ask_for_the_efficiency_and_the_size():
+    boiler, rod = fields_of("gas_boiler"), fields_of("heating_rod")
+
+    assert list(boiler) == ["outputs.heat.efficiency", "mode", "capacity"] == list(rod)
+    efficiency = boiler["outputs.heat.efficiency"]
+    assert (efficiency.label, efficiency.unit, efficiency.value) == ("Efficiency", "%", 90.0)
+    assert efficiency.help == "The share of the gas energy that becomes heat."
+    assert rod["outputs.heat.efficiency"].value == 99.0
+    assert rod["outputs.heat.efficiency"].help == "The share of the electricity that becomes heat."
+    assert boiler["capacity"].help == "The heat output of the boiler."
+    assert rod["capacity"].help == "The heat output of the heating rod."
+
+
+def test_the_chp_plant_asks_for_both_efficiencies_and_says_which_output_its_size_is():
+    fields = fields_of("chp")
+
+    assert list(fields) == ["outputs.electricity.efficiency", "outputs.heat.efficiency", "mode", "capacity"]
+    assert (fields["outputs.electricity.efficiency"].label, fields["outputs.electricity.efficiency"].value) == (
+        "Electrical efficiency", 35.0)
+    assert (fields["outputs.heat.efficiency"].label, fields["outputs.heat.efficiency"].value) == (
+        "Thermal efficiency", 50.0)
+    assert fields["capacity"].help == "The electrical output of the CHP plant. Its heat output follows from the efficiencies."
+
+
+def test_the_heat_pump_asks_for_the_cop():
+    fields = fields_of("heat_pump")
+
+    assert list(fields) == ["outputs.heat.ratio", "mode", "capacity"]
+    cop = fields["outputs.heat.ratio"]
+    assert (cop.label, cop.unit, cop.value) == ("COP", "kWh heat per kWh electricity", 3.5)
+    assert range_hint(spec_of("conversion", "outputs.heat.ratio")) == Msg("form.hint.above", min=0.0)
+    assert fields["capacity"].help == "The heat output of the heat pump."
+
+
+def test_a_storage_is_measured_in_kwh_and_has_no_initial_charge_level_in_its_form():
+    fields = fields_of("battery")
+
+    assert list(fields) == ["c_rate", "efficiency_charge", "efficiency_discharge", "loss_rate", "mode", "capacity"]
+    assert (fields["capacity"].label, fields["capacity"].unit) == ("Installed capacity", "kWh")
+    assert fields["capacity"].help == "The energy that the battery can store."
+    assert fields["efficiency_charge"].value == 95.0 and fields["loss_rate"].unit == "% per hour"
+    assert fields_of("heat_storage")["capacity"].help == "The heat that the heat storage can hold."
+    assert "initial_level" not in fields and "initial_level" not in fields_of("heat_storage")     # the engine ignores it
+
+
+def test_the_investment_settings_of_a_storage_are_per_kwh():
+    component = invest(new_component("battery"))
+    fields = {f.key: f for block in form_blocks(component) for f in form_fields(component, block)}
+
+    assert (fields["maximum"].label, fields["maximum"].unit) == ("Maximum capacity", "kWh")
+    assert fields["capex"].unit == "€ per kWh"
+    assert "divided by the capacity" in fields["capex"].help
+
+
+def test_the_general_help_of_the_maximum_size_talks_about_space_and_the_pv_system_about_the_roof():
+    assert "available space" in field_of(invest(new_component("wind")), "maximum").help
+    assert "roof area" in field_of(invest(pv()), "maximum").help
+    assert "Dachfläche" in field_of(invest(pv()), "maximum", DE).help
+
+
+def test_the_german_words_of_the_converters_and_the_storages():
+    chp = fields_of("chp", DE)
+    battery = fields_of("battery", DE)
+
+    assert chp["outputs.electricity.efficiency"].label == "Elektrischer Wirkungsgrad"
+    assert chp["outputs.heat.efficiency"].label == "Thermischer Wirkungsgrad"
+    assert fields_of("heat_pump", DE)["outputs.heat.ratio"].label == "Leistungszahl (COP)"
+    assert fields_of("heat_pump", DE)["outputs.heat.ratio"].unit == "kWh Wärme pro kWh Strom"
+    assert (battery["capacity"].label, battery["capacity"].unit) == ("Installierte Kapazität", "kWh")
+    assert battery["efficiency_charge"].label == "Lade-Wirkungsgrad"
+    assert fields_of("gas_boiler", DE)["capacity"].help == "Die Wärmeleistung des Kessels."
+
+
+# ---------------------------------------------------------------------------
+# a setting that is a path, and a minimum that is excluded
+# ---------------------------------------------------------------------------
+
+def boiler():
+    return new_component("gas_boiler")
+
+
+def test_a_setting_of_the_conversion_is_stored_where_the_conversion_keeps_it():
+    component = boiler()
+
+    assert set_value(component, "conversion", "outputs.heat.efficiency", 85) is None
+
+    assert component.blocks["conversion"]["outputs"]["heat"]["efficiency"] == 85.0
+    assert field_of_block(component, "conversion", "outputs.heat.efficiency").value == 85.0
+
+
+def field_of_block(component, block, key, tr=ENGLISH):
+    return next(f for f in form_fields(component, block, tr) if f.key == key)
+
+
+def test_clearing_a_setting_of_the_conversion_removes_it_and_leaves_no_empty_dictionaries():
+    component = boiler()
+
+    set_value(component, "conversion", "outputs.heat.efficiency", None)
+
+    assert component.blocks["conversion"] == {}
+
+
+def test_clearing_one_of_two_efficiencies_keeps_the_other():
+    component = new_component("chp")
+
+    set_value(component, "conversion", "outputs.heat.efficiency", "")
+
+    assert component.blocks["conversion"] == {"outputs": {"electricity": {"efficiency": 35.0}}}
+
+
+def test_the_value_of_a_setting_that_is_not_there_is_empty():
+    component = boiler()
+    component.blocks["conversion"] = {}
+
+    assert field_of_block(component, "conversion", "outputs.heat.efficiency").value is None
+
+
+@pytest.mark.parametrize("raw", [0, 0.0, -1, 100.5])
+def test_an_efficiency_of_0_or_above_100_is_refused(raw):
+    component = boiler()
+
+    found = set_value(component, "conversion", "outputs.heat.efficiency", raw)
+
+    assert found == Msg("form.hint.above_range", min=0.0, max=100.0)
+    assert component.blocks["conversion"]["outputs"]["heat"]["efficiency"] == 90.0
+
+
+@pytest.mark.parametrize("raw", [0.1, 1, 100])
+def test_an_efficiency_above_0_and_up_to_100_fits(raw):
+    assert set_value(boiler(), "conversion", "outputs.heat.efficiency", raw) is None
+
+
+def test_the_cop_must_be_above_0():
+    component = new_component("heat_pump")
+
+    assert set_value(component, "conversion", "outputs.heat.ratio", 0) == Msg("form.hint.above", min=0.0)
+    assert set_value(component, "conversion", "outputs.heat.ratio", 0.1) is None
+    assert set_value(component, "conversion", "outputs.heat.ratio", 7) is None
+
+
+def test_the_messages_for_a_number_that_has_to_be_above_a_minimum():
+    assert ENGLISH.message(Msg("form.hint.above_range", min=0.0, max=100.0)) == "Enter a number above 0 and at most 100."
+    assert DE.message(Msg("form.hint.above_range", min=0.0, max=100.0)) == "Geben Sie eine Zahl über 0 und höchstens 100 ein."
+    assert ENGLISH.message(Msg("form.hint.above", min=0.0)) == "Enter a number above 0."
+    assert DE.message(Msg("form.hint.above", min=0.0)) == "Geben Sie eine Zahl über 0 ein."
+
+
+def test_what_the_form_refuses_is_what_the_conversion_would_refuse():
+    # the form never lets a value in that makes the component invalid for the scenario
+    from backend.blocks import conversion_problems
+
+    for raw in (0, 0.5, 50, 100, 100.5):
+        component = boiler()
+        refused = set_value(component, "conversion", "outputs.heat.efficiency", raw) is not None
+        invalid = bool(conversion_problems(component.blocks["conversion"], {"heat"}, "x"))
+
+        assert not invalid, raw                      # whatever is stored is valid
+        assert refused == (raw in (0, 100.5)), raw
+
+
+# ---------------------------------------------------------------------------
+# what only a few settings together can get wrong
+# ---------------------------------------------------------------------------
+
+def test_the_two_efficiencies_of_the_chp_plant_cannot_add_up_to_more_than_100():
+    component = new_component("chp")                                 # 35 and 50
+
+    found = set_value(component, "conversion", "outputs.electricity.efficiency", 60)
+
+    assert found == Msg("form.hint.efficiency_sum")
+    assert component.blocks["conversion"]["outputs"]["electricity"]["efficiency"] == 35.0          # not stored
+    assert set_value(component, "conversion", "outputs.electricity.efficiency", 50) is None       # 50 + 50 = 100 fits
+    assert set_value(component, "conversion", "outputs.heat.efficiency", 51) == Msg("form.hint.efficiency_sum")
+
+
+def test_the_sum_is_only_checked_when_the_component_is_known():
+    assert problem("conversion", "outputs.electricity.efficiency", 60) is None
+    assert problem("conversion", "outputs.electricity.efficiency", 60, new_component("chp")) == Msg(
+        "form.hint.efficiency_sum")
+
+
+def test_the_message_about_the_sum_in_both_languages():
+    assert ENGLISH.message(Msg("form.hint.efficiency_sum")) == "The efficiencies together cannot be more than 100 %."
+    assert DE.message(Msg("form.hint.efficiency_sum")) == "Die Wirkungsgrade zusammen dürfen nicht mehr als 100 % betragen."
+    assert DE.message(Msg("form.hint.invalid")) == "Dieser Wert ist hier nicht möglich."
+
+
+def test_clearing_an_efficiency_is_always_possible_and_found_by_the_check():
+    draft = ScenarioDraft()
+    draft.apply_template("Gas heating")
+
+    set_value(draft.component("gas_boiler"), "conversion", "outputs.heat.efficiency", None)
+
+    found = [f for f in draft.findings() if f.code == "value_missing"]
+    assert [f.message for f in found] == ["Gas boiler: Efficiency is not filled in."]
+
+
+def test_a_storage_efficiency_has_the_usual_range():
+    component = new_component("battery")
+
+    assert set_value(component, "storage", "efficiency_charge", 101) == Msg("form.hint.range", min=0.0, max=100.0)
+    assert set_value(component, "storage", "efficiency_charge", 0) is None        # a storage that cannot be charged is not an error here

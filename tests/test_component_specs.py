@@ -304,3 +304,11 @@ def test_the_connections_are_the_buses_the_model_really_uses():
     config = TECH_CONFIG_REGISTRY["pv"](tech_inputs={"pv": {}}, input_data={})
 
     assert {f"{c.bus}_bus" for c in PV.connections} == {config["bus"]}
+
+
+def test_a_minimum_that_is_excluded_needs_a_minimum():
+    with pytest.raises(ValueError, match="needs a minimum"):
+        FieldSpec(key="a", label="A", kind="number", minimum_exclusive=True)
+
+    assert FieldSpec(key="a", label="A", kind="number", minimum=0, minimum_exclusive=True).minimum_exclusive
+    assert not FieldSpec(key="a", label="A", kind="number", minimum=0).minimum_exclusive

@@ -98,12 +98,51 @@ def _field_problems(prefix, field, value):
         return [f"{name} must be a number"]
 
     found = []
-    if field.minimum is not None and value < field.minimum:
+    if field.minimum is not None and field.minimum_exclusive and value <= field.minimum:
+        found.append(f"{name} must be above {field.minimum:g}{unit}")
+    elif field.minimum is not None and value < field.minimum:
         found.append(f"{name} must be at least {field.minimum:g}{unit}")
     if field.maximum is not None and value > field.maximum:
         found.append(f"{name} must be at most {field.maximum:g}{unit}")
 
     return found
+
+
+def get_path(values, key):
+    """The value at a key or a path ('outputs.heat.efficiency') of a block, or None if it is not there."""
+
+    node = values
+    for part in key.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+
+    return node
+
+
+def put_path(values, key, value):
+    """Store a value at a key or a path of a block. None removes it, and the parents that become empty."""
+
+    parts = key.split(".")
+
+    if value is None:
+        trail, node = [], values
+        for part in parts[:-1]:
+            if not isinstance(node.get(part), dict):
+                return
+            trail.append((node, part))
+            node = node[part]
+
+        node.pop(parts[-1], None)
+        for parent, part in reversed(trail):
+            if not parent[part]:
+                del parent[part]
+        return
+
+    node = values
+    for part in parts[:-1]:
+        node = node.setdefault(part, {})
+    node[parts[-1]] = value
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +307,24 @@ BLOCKS = {
             kinds=("converter",),
             help="How much of each output comes out per unit of input.",
             extra_keys=("outputs",),
+            # the settings of the outputs that the forms offer: a path says where in `outputs` a value is
+            fields=(
+                FieldSpec(
+                    key="outputs.electricity.efficiency", label="Electrical efficiency", kind="number",
+                    unit="%", minimum=0, minimum_exclusive=True, maximum=100, step=1,
+                    help="The share of the energy put in that comes out as electricity.",
+                ),
+                FieldSpec(
+                    key="outputs.heat.efficiency", label="Efficiency", kind="number",
+                    unit="%", minimum=0, minimum_exclusive=True, maximum=100, step=1,
+                    help="The share of the energy put in that comes out as heat.",
+                ),
+                FieldSpec(
+                    key="outputs.heat.ratio", label="COP", kind="number",
+                    unit="kWh heat per kWh electricity", minimum=0, minimum_exclusive=True, step=0.1,
+                    help="The heat that comes out for every unit of electricity put in, for example 3.5.",
+                ),
+            ),
         ),
         BlockSpec(
             name="storage",
