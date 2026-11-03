@@ -231,9 +231,10 @@ def home_page():
 
     @ui.refreshable
     def settings():
+        state.drop_stale_uploads()
         for component in state.draft.components():
             if has_form(component):
-                render_component_form(component, state.tr, on_change=overview.refresh)
+                render_component_form(component, state.tr, on_change=overview.refresh, state=state)
 
     def show_selection_in_boxes():
         for key, box in boxes.items():

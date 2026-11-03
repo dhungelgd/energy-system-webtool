@@ -9,12 +9,16 @@ this file only turns it into input fields.
 - A choice is a set of radio buttons. A choice can change which other settings are shown,
   so the form is drawn again after it; a number does not draw it again (the cursor stays).
 - The help text of a setting is written under it.
+- A component that has a time series gets the section "Time series" under its settings
+  (series_view.py), when the page gives it its state.
 """
 
 from nicegui import ui
 
+from backend.series_input import has_series
 from frontend_nicegui.forms import form_blocks, form_fields, problem, sections, set_value
 from frontend_nicegui.names import display_name
+from frontend_nicegui.series_view import render_series
 
 TYPING_DELAY_MS = 300           # wait until the typing pauses, so that "24" does not check "2" first
 
@@ -25,8 +29,11 @@ def field_marker(component, field):
     return f"field-{component.id}-{field.block}-{field.key}"
 
 
-def render_component_form(component, tr, on_change):
-    """A card with the settings of one component. `on_change` is called after every stored input."""
+def render_component_form(component, tr, on_change, state=None):
+    """A card with the settings of one component. `on_change` is called after every stored input.
+
+    With the state of the page (page_state.py), a component that has a time series also gets its section.
+    """
 
     def explain(item, value):
         """The sentence for an input that cannot be taken over, or None if it can."""
@@ -83,3 +90,6 @@ def render_component_form(component, tr, on_change):
                         draw_field(item)
 
         fields()
+
+        if state is not None and has_series(component):
+            render_series(component, state, tr, on_series_change=lambda: (fields.refresh(), on_change()))

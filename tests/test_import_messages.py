@@ -85,8 +85,10 @@ def test_the_tour_covers_every_message_of_the_import():
     codes -= {"step", "sign", "aggregate"}  # parts of sentences, not sentences
     codes -= {"no_time_column", "start_outside", "infinite_values", "column_missing", "column_not_numbers"}
     codes -= {"step_too_long", "step_not_divisor", "convert_needed", "converted", "incomplete_hours"}
+    codes -= {"no_numeric_column"}  # tested with the upload session
 
-    assert codes == set(ERRORS) | set(NOTICES)  # the ten that are left out are tested with the series
+    assert codes == set(ERRORS) | set(
+        NOTICES)  # the eleven that are left out are tested with the series and the session
 
 
 @pytest.mark.parametrize("code", list(ERRORS))

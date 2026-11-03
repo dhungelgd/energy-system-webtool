@@ -10,6 +10,9 @@ blocks and which settings of them, is `FORMS`. A form only shows settings that t
 reads (a grid has a price, no revenue), and every setting the engine reads is in it; a test
 compares the table with what the adapter to the engine consumes.
 
+A setting that a time series replaces (the price of the grid, the COP of a heat pump) is not shown
+while the component uses the series.
+
 A component can have words of its own for a setting: the text "field.costs.variable_costs.
 label@grid" is used for the grid instead of the general "field.costs.variable_costs.label"
 (there it says "Electricity price", not "Variable costs").
@@ -54,6 +57,12 @@ FORMS = {
 }
 
 SECTIONS = ("basic", "investment", "advanced")
+
+# a setting that a time series replaces: it is not shown while the component uses the series
+REPLACED_BY_SERIES = {
+    ("costs", "variable_costs"): "variable_costs_series",
+    ("conversion", "outputs.heat.ratio"): "outputs.heat.ratio_series",
+}
 
 
 def has_form(component):
@@ -128,6 +137,10 @@ def form_fields(component, block_name, tr=ENGLISH):
     for spec in block.visible_fields(values):
         if shown is not None and spec.key not in shown:
             continue
+
+        replaced_by = REPLACED_BY_SERIES.get((block_name, spec.key))
+        if replaced_by is not None and get_path(values, replaced_by) is not None:
+            continue  # the component works with a time series now
 
         base = f"field.{block_name}.{spec.key}"
         value = get_path(values, spec.key)

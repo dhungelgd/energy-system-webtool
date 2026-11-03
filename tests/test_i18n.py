@@ -282,7 +282,7 @@ def test_the_link_wins_over_the_browser(requested, header, expected):
 SOURCES = sorted((ROOT / "backend").rglob("*.py")) + sorted((ROOT / "frontend_nicegui").rglob("*.py"))
 
 # keys that are built from a name in the code (component.<key>.label, group.<slug>, ...)
-DYNAMIC_FAMILIES = ("component.", "group.", "template.", "row.mode.", "block.", "field.")
+DYNAMIC_FAMILIES = ("component.", "group.", "template.", "row.mode.", "block.", "field.", "series.help.", "series.mode.constant@")
 
 
 def literal_keys_in_calls():

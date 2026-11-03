@@ -512,7 +512,7 @@ def test_the_wind_turbine_has_the_form_of_the_pv_system_with_its_own_help():
 
 
 def test_a_text_of_its_own_belongs_to_a_setting_that_the_form_of_that_component_shows():
-    own = [key for key in EN_CATALOG if "@" in key]
+    own = [key for key in EN_CATALOG if "@" in key and key.startswith("field.")]
 
     assert len(own) == 35                 # a new one belongs to a setting that the form shows
     for key in own:
@@ -872,3 +872,47 @@ def test_a_storage_efficiency_has_the_usual_range():
 
     assert set_value(component, "storage", "efficiency_charge", 101) == Msg("form.hint.range", min=0.0, max=100.0)
     assert set_value(component, "storage", "efficiency_charge", 0) is None        # a storage that cannot be charged is not an error here
+
+
+# ---------------------------------------------------------------------------
+# a setting that a time series replaces
+# ---------------------------------------------------------------------------
+
+def test_the_price_of_the_grid_is_not_shown_while_the_grid_uses_a_series():
+    from backend.scenario_v2 import SeriesData
+
+    draft = ScenarioDraft()
+    draft.apply_template("Electricity only")
+    grid = draft.component("grid")
+    assert [f.key for f in form_fields(grid, "costs")] == ["variable_costs"]
+
+    draft.set_series("grid", SeriesData(values=[0.3, 0.2]))
+
+    assert form_fields(grid, "costs") == []
+    draft.clear_series("grid")
+    assert [f.key for f in form_fields(grid, "costs")] == ["variable_costs"]
+
+
+def test_the_cop_of_the_heat_pump_is_not_shown_while_the_heat_pump_uses_a_series_and_comes_back_with_its_value():
+    from backend.scenario_v2 import SeriesData
+
+    draft = ScenarioDraft()
+    draft.apply_template("Heat pump + heating rod")
+    pump = draft.component("heat_pump")
+    set_value(pump, "conversion", "outputs.heat.ratio", 4.2)
+
+    draft.set_series("heat_pump", SeriesData(values=[3.0, 3.5]))
+    assert form_fields(pump, "conversion") == []
+
+    draft.clear_series("heat_pump")
+    assert [(f.key, f.value) for f in form_fields(pump, "conversion")] == [("outputs.heat.ratio", 4.2)]
+
+
+def test_a_setting_that_no_series_replaces_is_always_shown():
+    from backend.scenario_v2 import SeriesData
+
+    draft = ScenarioDraft()
+    draft.apply_template("PV system")
+    draft.set_series("demand", SeriesData(values=[1.0]))
+
+    assert [f.key for f in form_fields(draft.component("demand"), "demand")] == ["profile_type", "annual_demand"]

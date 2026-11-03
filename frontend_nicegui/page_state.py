@@ -25,6 +25,8 @@ class PageState:
 
     def __init__(self, language=DEFAULT_LANGUAGE):
         self.draft = ScenarioDraft()
+        self.uploads = {}             # component key -> the UploadSession of a file that is being prepared
+        self.series_wanted = set()    # components switched to "time series" that have none yet
         self.opened = None            # an OpenedFile
         self.file_error = None        # a Msg: why the last file could not be opened
         self.result = None            # the ScenarioResult of the opened scenario
@@ -48,6 +50,15 @@ class PageState:
     @property
     def tr(self):
         return self._tr
+
+    # ----- time series that are being prepared -----------------------------
+
+    def drop_stale_uploads(self):
+        """Forget the files and choices of components that are not part of the draft any more."""
+
+        for key in [key for key in self.uploads if not self.draft.is_selected(key)]:
+            del self.uploads[key]
+        self.series_wanted = {key for key in self.series_wanted if self.draft.is_selected(key)}
 
     # ----- the opened file -------------------------------------------------
 

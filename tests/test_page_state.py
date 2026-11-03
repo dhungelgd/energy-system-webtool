@@ -205,3 +205,30 @@ def test_a_run_cannot_start_after_a_file_that_is_not_a_scenario():
     state.open_file(json.dumps({"x": 1}).encode(), "other.json")
 
     assert state.opened is None and state.start_run() is None
+
+
+# ---------------------------------------------------------------------------
+# the time series that are being prepared
+# ---------------------------------------------------------------------------
+
+def test_the_files_that_are_being_prepared_belong_to_the_components_that_are_still_there():
+    state = PageState()
+    state.draft.apply_template("PV system")
+    state.uploads = {"pv": object(), "demand": object(), "wind": object()}
+    state.series_wanted = {"grid", "wind", "heat_pump"}
+
+    state.drop_stale_uploads()
+
+    assert set(state.uploads) == {"pv", "demand"}                           # the wind turbine is not part of the draft
+    assert state.series_wanted == {"grid"}
+
+
+def test_nothing_is_dropped_when_nothing_is_stale():
+    state = PageState()
+    state.draft.apply_template("Electricity only")
+    first = object()
+    state.uploads = {"demand": first}
+
+    state.drop_stale_uploads()
+
+    assert state.uploads == {"demand": first} and state.series_wanted == set()
