@@ -82,10 +82,11 @@ def the_notice(code, content, name, options):
 
 def test_the_tour_covers_every_message_of_the_import():
     codes = {key.split(".")[1] for key in EN_CATALOG if key.startswith("import.")}
-    codes -= {"step", "sign"}                       # parts of sentences, not sentences
+    codes -= {"step", "sign", "aggregate"}  # parts of sentences, not sentences
     codes -= {"no_time_column", "start_outside", "infinite_values", "column_missing", "column_not_numbers"}
+    codes -= {"step_too_long", "step_not_divisor", "convert_needed", "converted", "incomplete_hours"}
 
-    assert codes == set(ERRORS) | set(NOTICES)      # the five that are left out are tested with the series (below)
+    assert codes == set(ERRORS) | set(NOTICES)  # the ten that are left out are tested with the series
 
 
 @pytest.mark.parametrize("code", list(ERRORS))
