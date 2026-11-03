@@ -97,6 +97,22 @@ def _text(value, tr, names):
     return str(value)
 
 
+def coded_text(prefix, code, params, tr, names=None):
+    """The sentence for a code and its parameters, from the text "<prefix>.<code>" of the catalog.
+
+    The checks use the prefix "check", the reading of time series files "import". A parameter
+    can be a ComponentRef, a Fixed, a float, a list, or anything with a `render(tr, names)`.
+    """
+
+    values = {name: _text(value, tr, names) for name, value in params.items() if name != "n"}
+    key = f"{prefix}.{code}"
+
+    if "n" in params:
+        return tr.plural(key, params["n"], **values)
+
+    return tr(key, **values)
+
+
 def finding_text(finding, tr, names=None):
     """The sentence for a finding in the language of `tr`.
 
@@ -107,13 +123,7 @@ def finding_text(finding, tr, names=None):
     if finding.code is None:
         return finding.message
 
-    params = {name: _text(value, tr, names) for name, value in finding.params.items() if name != "n"}
-    key = f"check.{finding.code}"
-
-    if "n" in finding.params:
-        return tr.plural(key, finding.params["n"], **params)
-
-    return tr(key, **params)
+    return coded_text("check", finding.code, finding.params, tr, names)
 
 
 def coded(level, code, names=None, fixes=(), **params):

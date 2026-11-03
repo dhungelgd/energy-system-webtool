@@ -25,6 +25,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from backend.findings import coded_text
+from backend.i18n import ENGLISH
+
 CSV_EXTENSIONS = (".csv", ".txt", ".tsv")
 EXCEL_EXTENSIONS = (".xlsx", ".xlsm")
 FILE_TYPES = [ext.lstrip(".") for ext in CSV_EXTENSIONS + EXCEL_EXTENSIONS]
@@ -42,7 +45,91 @@ MIN_SHARE_NUMBERS = 0.5
 
 
 class TimeSeriesFileError(ValueError):
-    """The file cannot be read. The message is written for the user."""
+    """The file cannot be read.
+
+    `code` and `params` say what is the matter; the sentence for the user is in the catalogs of
+    backend/i18n under "import.<code>" (`import_text` words it in a language). `str(error)` is
+    the English sentence, for the interfaces that do not translate.
+    """
+
+    def __init__(self, code, **params):
+        self.code = code
+        self.params = params
+        super().__init__(coded_text("import", code, params, ENGLISH))
+
+    def __reduce__(self):
+        return (_error, (self.code, self.params))
+
+
+def _error(code, params):
+    return TimeSeriesFileError(code, **params)
+
+
+class Notice(tuple):
+    """A message about a file that was read: (level, English sentence).
+
+    It unpacks like that pair, so that code which only knows the pairs keeps working; `code` and
+    `params` are for wording it in another language (`import_text`). The level is "info" or "warning".
+    """
+
+    def __new__(cls, level, code, **params):
+        item = super().__new__(cls, (level, coded_text("import", code, params, ENGLISH)))
+        item.code = code
+        item.params = params
+        return item
+
+    def __getnewargs_ex__(self):
+        return (self[0], self.code), self.params
+
+    @property
+    def level(self):
+        return self[0]
+
+    @property
+    def text(self):
+        return self[1]
+
+
+def import_text(item, tr):
+    """The sentence for an error or a notice of the import, in the language of `tr`."""
+
+    return coded_text("import", item.code, item.params, tr)
+
+
+class StepText:
+    """A time step as words: '15 minutes', '1 hour', '3 hours'."""
+
+    def __init__(self, minutes):
+        self.minutes = minutes
+
+    def render(self, tr, names=None):
+        if self.minutes < 60:
+            return tr("import.step.minutes", minutes=tr.number(float(self.minutes)))
+        if self.minutes == 60:
+            return tr("import.step.hour")
+        return tr("import.step.hours", hours=tr.number(float(self.minutes / 60)))
+
+    def __eq__(self, other):
+        return isinstance(other, StepText) and other.minutes == self.minutes
+
+    def __hash__(self):
+        return hash(("StepText", self.minutes))
+
+
+class DecimalSign:
+    """A decimal sign as words: 'comma (12,5)' or 'point (12.5)'."""
+
+    def __init__(self, sign):
+        self.sign = sign
+
+    def render(self, tr, names=None):
+        return tr("import.sign.comma" if self.sign == "," else "import.sign.point")
+
+    def __eq__(self, other):
+        return isinstance(other, DecimalSign) and other.sign == self.sign
+
+    def __hash__(self):
+        return hash(("DecimalSign", self.sign))
 
 
 @dataclass(frozen=True)
@@ -137,16 +224,13 @@ def _looks_like_data(value):
 
 def _decode(content, encoding):
     if not content.strip():
-        raise TimeSeriesFileError("The file is empty.")
+        raise TimeSeriesFileError("empty")
 
     if encoding:
         try:
             return content.decode(encoding), encoding
         except (UnicodeDecodeError, LookupError):
-            raise TimeSeriesFileError(
-                f"The file cannot be read with the encoding '{encoding}'. "
-                f"Choose 'Automatic' or another encoding."
-            )
+            raise TimeSeriesFileError("encoding", encoding=encoding)
 
     if content.startswith((b"\xff\xfe", b"\xfe\xff")):
         return content.decode("utf-16"), "utf-16"
@@ -181,12 +265,13 @@ def _detect_delimiter(text):
 
 def _csv_grid(content, options):
     text, encoding = _decode(content, options.encoding)
-    delimiter = options.delimiter or _detect_delimiter(text)
 
     try:
+        # the detection reads the file with the csv module too, so it belongs in the try
+        delimiter = options.delimiter or _detect_delimiter(text)
         grid = list(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter))
     except csv.Error as error:
-        raise TimeSeriesFileError(f"The file cannot be read as a table: {error}")
+        raise TimeSeriesFileError("unreadable_table", error=str(error))
 
     return grid, encoding, delimiter
 
@@ -197,9 +282,7 @@ def _excel_grid(content, options):
     try:
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
     except Exception:
-        raise TimeSeriesFileError(
-            "The Excel file cannot be opened. Is it damaged or password protected?"
-        )
+        raise TimeSeriesFileError("excel_unreadable")
 
     try:
         sheets = list(workbook.sheetnames)
@@ -212,7 +295,7 @@ def _excel_grid(content, options):
 
         if options.sheet:
             if options.sheet not in sheets:
-                raise TimeSeriesFileError(f"The sheet '{options.sheet}' does not exist.")
+                raise TimeSeriesFileError("sheet_missing", sheet=options.sheet)
             return read(options.sheet), sheets, options.sheet
 
         # the sheet with the most numbers and dates is the data sheet; a sheet
@@ -227,7 +310,7 @@ def _excel_grid(content, options):
                 best = ((data, filled), grid, name)
 
         if best is None:
-            raise TimeSeriesFileError("The Excel file contains no data.")
+            raise TimeSeriesFileError("excel_empty")
 
         return best[1], sheets, best[2]
     finally:
@@ -253,7 +336,7 @@ def _find_table(grid):
     filled = [c for c in counts if c > 0]
 
     if not filled:
-        raise TimeSeriesFileError("The file contains no data.")
+        raise TimeSeriesFileError("no_data")
 
     # the usual number of filled cells in a row is the width of the table
     frequency = Counter(filled)
@@ -460,48 +543,24 @@ def _time_axis(df):
 
 
 def _describe_time(axis):
-    messages = []
-
     def stamp(value):
         return value.strftime("%d.%m.%Y %H:%M")
 
-    step = axis.step_minutes
-    if step < 60:
-        step_text = f"{step:g} minutes"
-    else:
-        step_text = "1 hour" if step == 60 else f"{step / 60:g} hours"
+    step = StepText(axis.step_minutes)
 
-    messages.append((
-        "info",
-        f"Time column '{axis.column}': {stamp(axis.start)} to {stamp(axis.end)}, "
-        f"{axis.rows} rows, time step {step_text}.",
-    ))
+    messages = [Notice(
+        "info", "time_info",
+        column=axis.column, start=stamp(axis.start), end=stamp(axis.end), rows=axis.rows, step=step,
+    )]
 
-    if step != 60:
-        messages.append((
-            "warning",
-            f"The time step of the file is {step_text}, but the model works with "
-            f"hourly values. Convert the data to hourly values first.",
-        ))
+    if axis.step_minutes != 60:
+        messages.append(Notice("warning", "time_step_not_hourly", step=step))
     if not axis.sorted:
-        messages.append((
-            "warning",
-            "The timestamps are not in ascending order. The model uses the rows "
-            "in the order of the file.",
-        ))
+        messages.append(Notice("warning", "unsorted"))
     if axis.duplicates:
-        messages.append((
-            "warning",
-            f"{axis.duplicates} timestamps appear twice. This is typical for the "
-            f"end of daylight saving time (the hour from 02:00 to 03:00 is "
-            f"recorded twice).",
-        ))
+        messages.append(Notice("warning", "duplicates", n=axis.duplicates))
     if axis.gaps:
-        messages.append((
-            "warning",
-            f"{axis.gaps} gaps in the timestamps. This is typical for the start "
-            f"of daylight saving time (one hour is missing) or for missing data.",
-        ))
+        messages.append(Notice("warning", "gaps", n=axis.gaps))
 
     return messages
 
@@ -535,20 +594,14 @@ def read_table(content, filename, options=None):
         grid, encoding, delimiter = _csv_grid(content, options)
         sheet = None
     elif extension == ".xls":
-        raise TimeSeriesFileError(
-            "The old Excel format (.xls) is not supported. Open the file in "
-            "Excel and save it as .xlsx, or export it as CSV."
-        )
+        raise TimeSeriesFileError("xls_old")
     else:
-        raise TimeSeriesFileError(
-            f"The file type '{extension or 'without extension'}' is not supported. "
-            f"Use CSV, TXT, TSV or Excel (.xlsx)."
-        )
+        raise TimeSeriesFileError("file_type", extension=extension) if extension else TimeSeriesFileError("file_type_none")
 
     grid, width = _pad(grid)
 
     if not any(not _is_blank(cell) for row in grid for cell in row):
-        raise TimeSeriesFileError("The file contains no data.")
+        raise TimeSeriesFileError("no_data")
 
     # --- where is the table? (line numbers are 1-based, like in an editor)
     header_index, data_index = _find_table(grid)
@@ -569,10 +622,7 @@ def read_table(content, filename, options=None):
     ]
 
     if not rows:
-        raise TimeSeriesFileError(
-            "No data rows found below the column names. Check the line numbers "
-            "in the import settings."
-        )
+        raise TimeSeriesFileError("no_rows")
 
     # drop columns that are empty everywhere (also the header)
     keep = [
@@ -616,11 +666,7 @@ def read_table(content, filename, options=None):
             bad = [i for i, v in enumerate(values) if not _is_missing(v) and pd.isna(parsed.iloc[i])]
             data[name] = parsed
             if bad:
-                messages.append((
-                    "warning",
-                    f"Column '{name}': {len(bad)} dates could not be read "
-                    f"(first in line {row_lines[bad[0]]}).",
-                ))
+                messages.append(Notice("warning", "dates_unreadable", column=name, n=len(bad), line=row_lines[bad[0]]))
 
         elif kind_of_column == "number":
             converted = [_parse_number(v, decimal) for v in values]
@@ -634,18 +680,12 @@ def read_table(content, filename, options=None):
                 i for i, v in enumerate(values) if _is_missing(v)
             ]
             if not_numbers:
-                messages.append((
-                    "warning",
-                    f"Column '{name}': {len(not_numbers)} values are not numbers "
-                    f"(first in line {row_lines[not_numbers[0]]}: "
-                    f"'{values[not_numbers[0]]}').",
+                messages.append(Notice(
+                    "warning", "not_numbers", column=name, n=len(not_numbers),
+                    line=row_lines[not_numbers[0]], value=str(values[not_numbers[0]]),
                 ))
             if empty:
-                messages.append((
-                    "warning",
-                    f"Column '{name}': {len(empty)} empty values "
-                    f"(first in line {row_lines[empty[0]]}).",
-                ))
+                messages.append(Notice("warning", "empty_values", column=name, n=len(empty), line=row_lines[empty[0]]))
 
         else:
             data[name] = pd.Series(
@@ -665,10 +705,10 @@ def read_table(content, filename, options=None):
 
     # --- plain messages about what was found
     if any("," in t or "." in t for t in text_for_decimal):
-        sign = "comma (12,5)" if decimal == "," else "point (12.5)"
-        messages.insert(0, (
+        messages.insert(0, Notice(
             "info" if certain else "warning",
-            f"Decimal sign: {sign}" + ("" if certain else " - assumed, please check the preview."),
+            "decimal_sign" if certain else "decimal_sign_assumed",
+            sign=DecimalSign(decimal),
         ))
 
     table = ImportedTable(
@@ -680,9 +720,7 @@ def read_table(content, filename, options=None):
     if table.time is not None:
         table.messages = _describe_time(table.time) + table.messages
     else:
-        table.messages.insert(0, (
-            "info", "No date column found. The rows are used in the order of the file."
-        ))
+        table.messages.insert(0, Notice("info", "no_date_column"))
 
     return table
 
@@ -691,13 +729,11 @@ def series_from_column(table, column):
     """The values of one column as a list of numbers (empty cells stay NaN)."""
 
     if column not in table.df.columns:
-        raise TimeSeriesFileError(f"The column '{column}' does not exist.")
+        raise TimeSeriesFileError("column_missing", column=column)
 
     series = table.df[column]
 
     if not pd.api.types.is_numeric_dtype(series):
-        raise TimeSeriesFileError(
-            f"The column '{column}' does not contain numbers. Choose another column."
-        )
+        raise TimeSeriesFileError("column_not_numbers", column=column)
 
     return series.tolist()

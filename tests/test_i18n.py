@@ -312,6 +312,11 @@ def literal_keys_in_calls():
             elif (isinstance(function, ast.Name) and function.id in ("error", "warning")
                   and path.name == "system_check.py" and literal(0)):
                 keys.append((path.name, f"check.{literal(0)}"))
+            # the code of a message about a file: TimeSeriesFileError("code", ...) or Notice("level", "code", ...)
+            elif isinstance(function, ast.Name) and function.id == "TimeSeriesFileError" and literal(0):
+                keys.append((path.name, f"import.{literal(0)}"))
+            elif isinstance(function, ast.Name) and function.id == "Notice" and literal(1):
+                keys.append((path.name, f"import.{literal(1)}"))
 
     return keys, plural_keys
 
@@ -345,12 +350,11 @@ def test_every_text_in_the_catalog_is_used_by_the_code():
         base = key.rsplit(".", 1)[0] if key.endswith((".one", ".other")) else key
         if key.startswith(DYNAMIC_FAMILIES):
             continue
-        if key.startswith("check."):
-            # the code of a finding is also written in tables and conditions, not only in the call
-            if key.split(".")[1] not in strings:
-                unused.append(key)
-        elif key not in strings and base not in strings:
-            unused.append(key)
+        if key in strings or base in strings:
+            continue
+        if key.startswith(("check.", "import.")) and key.split(".")[1] in strings:
+            continue                  # the code of a message is also written in tables and conditions, not only in the call
+        unused.append(key)
 
     assert unused == [], f"texts nobody asks for: {unused}"
 

@@ -7,14 +7,19 @@ scenario (`scenario()`) and the result of the system check (`findings()`).
 
 A draft is valid by construction: its setters refuse what a scenario cannot hold and
 say why in a sentence for the user.
+
+The time series belong to the components: a component keeps its series (`set_series`) as long as
+it is part of the draft, and loses it when it is removed, like what was typed into it.
 """
 
 import math
 from datetime import date, datetime, time
 
 from backend import service_v2
+from backend.blocks import get_path, put_path
 from backend.component_specs import INFO
 from backend.scenario_v2 import ScenarioV2
+from backend.series_input import slot_of
 from backend.system_templates import SYSTEM_TEMPLATES, in_order
 from backend.templates import carriers_for, new_component
 
@@ -70,6 +75,8 @@ class ScenarioDraft:
 
     def __init__(self, name="", start=DEFAULT_START, steps=DEFAULT_STEPS):
         self._components = {}
+        self._series = {}                  # component key -> its time series (a SeriesData)
+        self._constants = {}               # component key -> the constant that a series replaced
         self.name = name
         self.start = start
         self.steps = steps
@@ -118,6 +125,7 @@ class ScenarioDraft:
             self._components.setdefault(key, new_component(key))
         else:
             self._components.pop(key, None)
+            self._forget(key)
 
     def is_selected(self, key):
         return key in self._components
@@ -150,11 +158,69 @@ class ScenarioDraft:
         for key in list(self._components):
             if key not in wanted:
                 del self._components[key]
+                self._forget(key)
         for key in wanted:
             self.set(key)
 
     def clear(self):
         self._components = {}
+        self._series = {}
+        self._constants = {}
+
+    # ----- time series -----------------------------------------------------
+
+    def _forget(self, key):
+        self._series.pop(key, None)
+        self._constants.pop(key, None)
+
+    def series_of(self, key):
+        """The time series of a component (a SeriesData), or None if it has none."""
+
+        return self._series.get(key)
+
+    def set_series(self, key, data):
+        """Give a component its time series (a SeriesData made by series_input.series_data).
+
+        A component that can also use a constant (the grid price, the COP) is switched to the series.
+        The constant of the heat pump is kept and comes back with `clear_series`.
+        """
+
+        component = self.component(key)
+        slot = slot_of(component)
+        if slot is None:
+            raise ValueError(f"the component '{key}' has no time series")
+
+        block = component.blocks.setdefault(slot.block, {})
+        constant = get_path(block, "outputs.heat.ratio") if key == "heat_pump" else None
+        if constant is not None:
+            self._constants[key] = constant                      # a series and a constant exclude each other
+            put_path(block, "outputs.heat.ratio", None)
+
+        self._series[key] = data
+        put_path(block, slot.field, slot.series_id)
+
+    def clear_series(self, key):
+        """Take the time series away. A component with a constant goes back to it."""
+
+        component = self.component(key)
+        slot = slot_of(component)
+        if slot is None or key not in self._series:
+            return
+
+        del self._series[key]
+        block = component.blocks.setdefault(slot.block, {})
+        put_path(block, slot.field, None)
+
+        if key == "heat_pump":
+            constant = self._constants.pop(key, None)
+            if constant is None:
+                constant = get_path(new_component(key).blocks[slot.block], "outputs.heat.ratio")
+            put_path(block, "outputs.heat.ratio", constant)
+
+    def uses_series(self, key):
+        """True if the component works with a time series now (for the grid and the heat pump: and not the constant)."""
+
+        return key in self._series
 
     # ----- what it makes ---------------------------------------------------
 
@@ -166,12 +232,18 @@ class ScenarioDraft:
         """
 
         components = [component.model_copy(deep=True) for component in self.components()]
+        series = {
+            slot_of(component).series_id: self._series[component.id].model_copy(deep=True)
+            for component in components
+            if component.id in self._series
+        }
 
         return ScenarioV2(
             name=self.name or default_name,
             time={"start": datetime.combine(self.start, time.min), "steps": self.steps},
             carriers=carriers_for(components),
             components=components,
+            series=series,
         )
 
     def findings(self):
