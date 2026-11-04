@@ -25,6 +25,12 @@ def template_label(tr, name):
     return tr(f"template.{slug(name)}")
 
 
+def fix_label(tr, keys):
+    """The text of a repair button: what it adds, e.g. 'Add CHP plant + Gas import'."""
+
+    return tr("fix.add", names=" + ".join(component_label(tr, key) for key in keys))
+
+
 def display_name(component, tr=ENGLISH):
     """The name of a component as shown to the reader.
 

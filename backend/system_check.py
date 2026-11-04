@@ -66,11 +66,12 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
     labels = labels or {}
 
     def fixes(*options):
-        # keep only what is still missing; drop options that are already complete
+        # keep only what is still missing; drop options that are already complete, and options that have
+        # become the same (a boiler and a CHP plant that both only lack the gas import)
         result = []
         for option in options:
             missing = tuple(k for k in option if k not in chosen)
-            if missing:
+            if missing and missing not in result:
                 result.append(missing)
         return tuple(result)
 
@@ -251,7 +252,8 @@ def check_system(selected, tech_inputs=None, input_data=None, labels=None):
 
     if "grid_feedin" in chosen and not (renewables or chp_works):
         warning(
-            "feedin_unused", fixes(("pv",), ("wind",), ("chp", "gas_import")),
+            # a CHP plant only supplies electricity when its gas arrives and its heat is used (see chp_works)
+            "feedin_unused", fixes(("pv",), ("wind",), ("chp", "gas_import", "heat_demand")),
             component=ref("grid_feedin"),
         )
 

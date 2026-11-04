@@ -31,7 +31,7 @@ from frontend_nicegui.draft import (
 from frontend_nicegui.form_view import TYPING_DELAY_MS, render_component_form
 from frontend_nicegui.forms import has_form
 from frontend_nicegui.markers import slug
-from frontend_nicegui.names import component_label, group_label, template_label
+from frontend_nicegui.names import component_label, fix_label, group_label, template_label
 from frontend_nicegui.page_state import PageState
 from frontend_nicegui.result_view import headline_cards, solver_text
 from frontend_nicegui.scenario_view import component_rows, describe_period, series_rows
@@ -98,8 +98,12 @@ def show_result(result, tr):
     ui.label(solver_text(result, tr)).classes("text-grey").mark("solver")
 
 
-def show_findings(findings, tr, title_key="findings.title", marker="findings"):
-    """The result of the system check: errors, warnings, or 'ready'."""
+def show_findings(findings, tr, title_key="findings.title", marker="findings", on_fix=None):
+    """The result of the system check: errors, warnings, or 'ready'.
+
+    With `on_fix`, a finding that proposes a repair gets a button for each: `on_fix(keys)` is called with
+    the components that it adds. A scenario that was opened from a file cannot be changed, so it gets none.
+    """
 
     errors = [f for f in findings if f.level == "error"]
 
@@ -112,11 +116,22 @@ def show_findings(findings, tr, title_key="findings.title", marker="findings"):
                 ui.label(tr("findings.passed"))
             return
 
-        for finding in findings:
+        for index, finding in enumerate(findings):
             icon, color = ("error", "negative") if finding.level == "error" else ("warning", "warning")
-            with ui.row().classes("items-start gap-2 no-wrap"):
-                ui.icon(icon, color=color)
-                ui.label(finding_text(finding, tr))
+            with ui.column().classes("gap-1"):
+                with ui.row().classes("items-start gap-2 no-wrap"):
+                    ui.icon(icon, color=color)
+                    ui.label(finding_text(finding, tr))
+
+                if on_fix is not None and finding.fixes:
+                    with ui.row().classes("gap-2 ml-8"):
+                        for option, keys in enumerate(finding.fixes):
+                            ui.button(
+                                fix_label(tr, keys), icon="add", on_click=lambda _, k=keys: on_fix(k),
+                            ).props("outline dense no-caps").mark(f"fix-{index}-{option}")
+
+        if on_fix is not None and any(finding.fixes for finding in findings):
+            ui.label(tr("findings.fix_note")).classes("text-grey text-sm").mark("fix-note")
 
         if errors:
             ui.label(tr("findings.fix_errors")).classes("text-negative")
@@ -227,7 +242,7 @@ def home_page():
             ui.table(columns=component_columns(tr), rows=component_rows(scenario, tr)).props(
                 "dense flat").classes("w-full").mark("draft-components")
 
-        show_findings(service_v2.check(scenario), tr, "findings.title_draft", "draft-findings")
+        show_findings(service_v2.check(scenario), tr, "findings.title_draft", "draft-findings", on_fix=add_components)
 
     @ui.refreshable
     def settings():
@@ -241,6 +256,13 @@ def home_page():
             box.value = state.draft.is_selected(key)
         settings.refresh()
         overview.refresh()
+
+    def add_components(keys):
+        """The repair of a finding: add the missing components (with their standard settings)."""
+
+        for key in keys:
+            state.draft.set(key, True)
+        show_selection_in_boxes()
 
     def on_tick(key, event):
         # also called when a template sets a box; then nothing is left to do

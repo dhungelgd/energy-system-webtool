@@ -289,7 +289,8 @@ def test_a_message_with_two_components_in_german():
 
 
 # the repairs that each message proposes (components that would solve it); a message that is not
-# listed proposes none. The Streamlit interface builds its buttons from them.
+# listed proposes none. The interfaces build their buttons from them. (test_fixes.py checks that each of
+# them really repairs.)
 FIXES = {
     "no_demand": (("demand",), ("heat_demand",)),
     "demand_no_supply": (("grid",),),
@@ -297,7 +298,7 @@ FIXES = {
                           ("heat_pump", "grid"), ("heating_rod", "grid")),
     "renewables_alone": (("grid",),),
     "surplus_not_exported": (("grid_feedin",),),
-    "feedin_unused": (("pv",), ("wind",), ("chp", "gas_import")),
+    "feedin_unused": (("pv",), ("wind",), ("chp", "gas_import", "heat_demand")),
     "no_fuel": (("gas_import",),),
     "chp_no_heat_demand": (("heat_demand",),),
     "chp_only_heat_source": (("grid_feedin",),),
@@ -309,7 +310,7 @@ FIXES = {
 
 
 @pytest.mark.parametrize("name", list(CASES))
-def test_a_message_proposes_the_repairs_it_always_did(name):
+def test_a_message_proposes_the_repairs_it_is_expected_to(name):
     for finding in run_case(name):
         if finding.code == name:
             assert finding.fixes == FIXES.get(name, ()), name
