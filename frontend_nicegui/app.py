@@ -428,8 +428,8 @@ def home_page():
 
             scenario_card()
             builder_card()
+            overview()  # the check is above the settings: a new card appears below it
             settings()
-            overview()
             open_card()
             details()
 

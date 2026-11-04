@@ -121,6 +121,27 @@ async def test_the_repairs_can_be_followed_one_after_the_other_until_nothing_is_
 
     assert buttons(user) == [] and not exists(user, "fix-note")       # what is left needs data, not components
 
+# ---------------------------------------------------------------------------
+# where the check is on the page
+# ---------------------------------------------------------------------------
+
+def position(user: User, marker: str):
+    """Where an element is on the page, counted from the top (the order in which it is drawn)."""
+
+    return list(user.client.content.descendants()).index(field(user, marker))
+
+
+async def test_the_check_is_above_the_settings_and_a_new_card_appears_below_it(user: User):
+    await start_with(user, "demand", "pv")
+
+    assert position(user, "component-pv") < position(user, "draft-findings")           # the builder, then the check ...
+    assert position(user, "draft-findings") < position(user, "form-demand") < position(user, "form-pv")   # ... then the cards
+    assert position(user, "form-pv") < position(user, "upload")                       # and the file to open at the end
+
+    await press(user, "Add Electricity grid")
+
+    assert position(user, "draft-findings") < position(user, "form-grid")             # the new card is below the check
+
 
 # ---------------------------------------------------------------------------
 # what a repair leaves alone
