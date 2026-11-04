@@ -295,6 +295,7 @@
   "run.failed": "The optimization could not be completed: {reason}",
   "run.heading": "Run the optimization",
   "run.intro": "The optimization runs in the background, so the page stays usable. A full year can take from a few seconds up to a minute.",
+  "run.outdated": "You changed the scenario after this run. The results below belong to the earlier version. Run the optimization again to update them.",
   "run.running": "Running the optimization...",
   "run.unexpected": "The optimization stopped unexpectedly. Please try again; if it happens again, tell the developers.",
   "scenario.default_name": "Unnamed scenario",

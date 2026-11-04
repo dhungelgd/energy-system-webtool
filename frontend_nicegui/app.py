@@ -72,6 +72,24 @@ async def solve(scenario):
     return await run.cpu_bound(service_v2.run, scenario)
 
 
+async def execute(scenario):
+    """Run a scenario in the background. Gives (result, None), or (None, why it failed as a Msg).
+
+    A problem that the optimization reports is explained to the visitor; anything else is logged for the
+    developers and only called unexpected on the page (the details stay hidden).
+    """
+
+    try:
+        return await solve(scenario), None
+
+    except ScenarioError as error:
+        return None, Msg("run.failed", reason=str(error))
+
+    except Exception:  # noqa: BLE001 - the page must stay alive whatever happens
+        logger.exception("The optimization stopped unexpectedly")
+        return None, Msg("run.unexpected")
+
+
 def is_valid(parse, value):
     """True if the parser accepts the value (for the validation of an input field)."""
 
@@ -242,7 +260,67 @@ def home_page():
             ui.table(columns=component_columns(tr), rows=component_rows(scenario, tr)).props(
                 "dense flat").classes("w-full").mark("draft-components")
 
-        show_findings(service_v2.check(scenario), tr, "findings.title_draft", "draft-findings", on_fix=add_components)
+        findings = service_v2.check(scenario)
+        show_findings(findings, tr, "findings.title_draft", "draft-findings", on_fix=add_components)
+        draft_run_panel(can_run=not any(f.level == "error" for f in findings))
+
+    def draft_run_panel(can_run):
+        """The card to run the scenario that is being built (only when the check finds no errors), and what came
+        out of the last run. A result belongs to the scenario as it was run: if the draft was changed since,
+        it stays but says so."""
+
+        tr = state.tr
+
+        if can_run:
+            with ui.card().classes("w-full"):
+                ui.label(tr("run.heading")).classes("text-xl font-semibold")
+                ui.label(tr("run.intro"))
+
+                with ui.row().classes("items-center gap-4"):
+                    button = ui.button(tr("run.button"), icon="play_arrow", on_click=start_draft).mark("draft-run")
+                    button.set_enabled(not state.running)
+                    spinner = ui.spinner(size="lg")
+                    spinner.visible = state.running_draft
+                    ui.label(tr("run.running") if state.running_draft else "")
+
+        run = state.draft_run
+        if run is None:
+            return
+
+        changed = state.draft_changed_since_run()
+
+        with ui.column().classes("w-full gap-4").mark("draft-results"):
+            if run.error is not None:
+                if not changed:                                   # the error of an earlier version is not news
+                    ui.label(tr.message(run.error)).classes("text-negative").mark("draft-run-error")
+            elif run.result is not None:
+                if changed:
+                    with ui.row().classes("items-start gap-2 no-wrap"):
+                        ui.icon("warning", color="warning")
+                        ui.label(tr("run.outdated")).mark("draft-outdated")
+                show_result(run.result, tr)
+
+    async def start_draft():
+        started = state.start_draft_run(tr_default_name())
+        if started is None:
+            return
+
+        if state.language_toggle is not None:
+            state.language_toggle.disable()
+        overview.refresh()
+        run_panel.refresh()             # one run at a time: the button of the opened file is blocked too
+
+        result, failure = await execute(started.scenario)
+
+        state.finish_draft_run(started, result=result, error=failure)
+
+        if state.language_toggle is not None and not state.language_toggle.is_deleted:
+            state.language_toggle.enable()
+        overview.refresh()
+        run_panel.refresh()
+
+    def tr_default_name():
+        return state.tr("scenario.default_name")
 
     @ui.refreshable
     def settings():
@@ -277,6 +355,7 @@ def home_page():
 
     def clear_selection():
         state.draft.clear()
+        state.draft_run = None          # whoever starts again does not want the result of the old system
         show_selection_in_boxes()
 
     def builder_card():
@@ -316,11 +395,12 @@ def home_page():
             ui.label(tr("run.intro"))
 
             with ui.row().classes("items-center gap-4"):
+                here = state.running and not state.running_draft          # the run of the opened file
                 button = ui.button(tr("run.button"), icon="play_arrow", on_click=start).mark("run")
                 button.set_enabled(not state.running)
                 spinner = ui.spinner(size="lg")
-                spinner.visible = state.running
-                ui.label(tr("run.running") if state.running else "")
+                spinner.visible = here
+                ui.label(tr("run.running") if here else "")
 
         with ui.column().classes("w-full gap-4").mark("results"):
             if state.run_error is not None:
@@ -336,25 +416,16 @@ def home_page():
         if state.language_toggle is not None:
             state.language_toggle.disable()
         run_panel.refresh()
+        overview.refresh()              # one run at a time: the button of the draft is blocked too
 
-        try:
-            result = await solve(started.scenario)
-
-        except ScenarioError as error:
-            result, failure = None, Msg("run.failed", reason=str(error))
-
-        except Exception:  # noqa: BLE001 - the page must stay alive whatever happens
-            logger.exception("The optimization stopped unexpectedly")
-            result, failure = None, Msg("run.unexpected")
-
-        else:
-            failure = None
+        result, failure = await execute(started.scenario)
 
         state.finish_run(started, result=result, error=failure)
 
         if state.language_toggle is not None and not state.language_toggle.is_deleted:
             state.language_toggle.enable()
         run_panel.refresh()
+        overview.refresh()
 
     def open_card():
         tr = state.tr
@@ -428,7 +499,7 @@ def home_page():
 
             scenario_card()
             builder_card()
-            overview()  # the check is above the settings: a new card appears below it
+            overview()                  # the check is above the settings: a new card appears below it
             settings()
             open_card()
             details()

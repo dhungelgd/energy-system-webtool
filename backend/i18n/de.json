@@ -295,6 +295,7 @@
   "run.failed": "Die Optimierung konnte nicht abgeschlossen werden: {reason}",
   "run.heading": "Optimierung ausführen",
   "run.intro": "Die Optimierung läuft im Hintergrund, die Seite bleibt bedienbar. Ein ganzes Jahr dauert von wenigen Sekunden bis zu einer Minute.",
+  "run.outdated": "Sie haben das Szenario nach diesem Lauf geändert. Die Ergebnisse unten gehören zur früheren Fassung. Starten Sie die Optimierung erneut, um sie zu aktualisieren.",
   "run.running": "Die Optimierung läuft ...",
   "run.unexpected": "Die Optimierung wurde unerwartet beendet. Bitte versuchen Sie es erneut; falls es wieder passiert, informieren Sie die Entwickler.",
   "scenario.default_name": "Unbenanntes Szenario",

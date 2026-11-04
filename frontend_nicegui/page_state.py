@@ -7,8 +7,9 @@ done is lost (the scenario that is being built, the file that was opened, the re
 
 from dataclasses import dataclass
 
+from backend import service_v2
 from backend.i18n import DEFAULT_LANGUAGE, LANGUAGES, Translator
-from frontend_nicegui.draft import ScenarioDraft
+from frontend_nicegui.draft import DEFAULT_NAME, ScenarioDraft
 from frontend_nicegui.scenario_view import ScenarioFileError, load_scenario
 
 
@@ -20,8 +21,23 @@ class OpenedFile:
     file_name: str
 
 
+@dataclass
+class DraftRun:
+    """A run of the scenario that is being built: what was run, and what came out of it."""
+
+    scenario: object              # the scenario that was run (a copy: the draft goes on changing)
+    result: object = None         # the ScenarioResult
+    error: object = None          # a Msg: why there is no result
+
+
+def same_scenario(a, b):
+    """True if two scenarios are the same apart from their name (a name that nobody chose follows the language)."""
+
+    return a.model_dump(exclude={"name"}) == b.model_dump(exclude={"name"})
+
+
 class PageState:
-    """The language, the scenario being built, the opened file, and the run."""
+    """The language, the scenario being built, the opened file, and the runs."""
 
     def __init__(self, language=DEFAULT_LANGUAGE):
         self.draft = ScenarioDraft()
@@ -31,7 +47,9 @@ class PageState:
         self.file_error = None        # a Msg: why the last file could not be opened
         self.result = None            # the ScenarioResult of the opened scenario
         self.run_error = None         # a Msg: why the last run did not give a result
-        self.running = False
+        self.running = False          # a run is going on (of the draft or of the opened file: one at a time)
+        self.running_draft = False    # ... and it is the run of the draft
+        self.draft_run = None         # a DraftRun: the last run of the scenario that is being built
         self.language_toggle = None   # the page puts its language switch here, to block it during a run
         self.language = language
 
@@ -77,7 +95,45 @@ class PageState:
             self.opened = OpenedFile(scenario, file_name)
             self.file_error = None
 
-    # ----- the run ---------------------------------------------------------
+    # ----- the run of the scenario that is being built ---------------------
+
+    def start_draft_run(self, default_name=DEFAULT_NAME):
+        """Note that a run of the draft starts. Returns the DraftRun (with a copy of the scenario that is run),
+        or None if nothing can be started now: a run is going on, nothing is chosen, or the check finds errors."""
+
+        if self.running or len(self.draft) == 0:
+            return None
+
+        scenario = self.draft.scenario(default_name)
+        if any(finding.level == "error" for finding in service_v2.check(scenario)):
+            return None
+
+        self.running = True
+        self.running_draft = True
+        self.draft_run = DraftRun(scenario)          # the result of an earlier run is gone
+        return self.draft_run
+
+    def finish_draft_run(self, started, result=None, error=None):
+        """Note that the run of the draft is over."""
+
+        self.running = False
+        self.running_draft = False
+
+        if self.draft_run is started:
+            started.result = result
+            started.error = error
+
+    def draft_changed_since_run(self):
+        """True if the draft is not the scenario that was run any more (a result of a run that is over, or its error)."""
+
+        run = self.draft_run
+
+        if run is None or (run.result is None and run.error is None):
+            return False
+
+        return not same_scenario(run.scenario, self.draft.scenario())
+
+    # ----- the run of the opened file ----------------------------------------
 
     def start_run(self):
         """Note that a run starts. Returns what is being run, or None if nothing can be started now."""

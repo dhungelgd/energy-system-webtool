@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from backend.i18n import Msg
+from backend.scenario_v2 import SeriesData
 from frontend_nicegui.draft import ScenarioDraft
 from frontend_nicegui.page_state import OpenedFile, PageState
 
@@ -232,3 +233,151 @@ def test_nothing_is_dropped_when_nothing_is_stale():
     state.drop_stale_uploads()
 
     assert state.uploads == {"demand": first} and state.series_wanted == set()
+
+
+# ---------------------------------------------------------------------------
+# the run of the scenario that is being built
+# ---------------------------------------------------------------------------
+
+def ready_state():
+    """A page state whose draft can be run: a demand with its series, and the grid, for one day."""
+
+    state = PageState()
+    state.draft.apply_template("Electricity only")
+    state.draft.steps = 24
+    state.draft.set_series("demand", SeriesData(values=[1 / 24] * 24))
+    return state
+
+
+def test_a_draft_without_errors_can_be_run_and_the_run_has_a_copy_of_the_scenario():
+    state = ready_state()
+
+    started = state.start_draft_run("Unnamed")
+
+    assert started is not None and state.running is True and state.running_draft is True
+    assert started.scenario.name == "Unnamed" and started.result is None and started.error is None
+    assert state.draft_run is started
+    state.draft.steps = 48                                         # the draft goes on, the run keeps what it got
+    assert started.scenario.time.steps == 24
+
+
+def test_nothing_is_run_when_nothing_is_chosen():
+    assert PageState().start_draft_run() is None
+
+
+def test_nothing_is_run_when_the_check_finds_errors():
+    state = ready_state()
+    state.draft.clear_series("demand")                              # the demand has no data now
+
+    assert state.start_draft_run() is None
+    assert state.running is False and state.draft_run is None
+
+
+def test_nothing_is_run_while_something_else_is_running():
+    state = ready_state()
+    state.start_draft_run()
+
+    assert state.start_draft_run() is None                         # the draft is running already
+
+    other = ready_state()
+    other.opened = OpenedFile(scenario=object(), file_name="x.json")
+    other.start_run()
+    assert other.start_draft_run() is None                         # the opened file is running
+
+
+def test_a_file_that_is_opened_cannot_be_run_while_the_draft_is_running():
+    state = ready_state()
+    state.opened = OpenedFile(scenario=object(), file_name="x.json")
+    state.start_draft_run()
+
+    assert state.start_run() is None
+
+
+def test_the_result_of_the_run_of_the_draft_is_kept_and_the_run_is_over():
+    state = ready_state()
+    started = state.start_draft_run()
+
+    state.finish_draft_run(started, result="the result")
+
+    assert state.running is False and state.running_draft is False
+    assert state.draft_run.result == "the result" and state.draft_run.error is None
+
+
+def test_the_error_of_a_run_of_the_draft_is_kept():
+    state = ready_state()
+    started = state.start_draft_run()
+
+    state.finish_draft_run(started, error=Msg("run.unexpected"))
+
+    assert state.draft_run.error == Msg("run.unexpected") and state.draft_run.result is None
+
+
+def test_a_new_run_removes_the_result_of_the_old_one():
+    state = ready_state()
+    state.finish_draft_run(state.start_draft_run(), result="first")
+
+    started = state.start_draft_run()
+
+    assert started.result is None and state.draft_run is started
+
+
+def test_the_end_of_a_run_that_is_not_the_current_one_is_ignored_but_frees_the_page():
+    state = ready_state()
+    old = state.start_draft_run()
+    state.draft_run = None                                          # (the visitor started again)
+
+    state.finish_draft_run(old, result="late")
+
+    assert state.draft_run is None and state.running is False
+
+
+def test_the_result_is_current_right_after_the_run_and_outdated_after_a_change():
+    state = ready_state()
+    assert state.draft_changed_since_run() is False                # nothing was run
+    started = state.start_draft_run()
+    assert state.draft_changed_since_run() is False                # it is running: no result yet
+
+    state.finish_draft_run(started, result="the result")
+    assert state.draft_changed_since_run() is False
+
+    state.draft.steps = 48
+    assert state.draft_changed_since_run() is True
+
+
+@pytest.mark.parametrize("change", [
+    lambda draft: setattr(draft, "start", "2022-03-01"),
+    lambda draft: draft.set("pv", True),
+    lambda draft: draft.set("grid", False),
+    lambda draft: draft.set_series("demand", SeriesData(values=[2 / 24] * 24)),
+    lambda draft: draft.clear_series("demand"),
+])
+def test_every_change_of_the_scenario_makes_the_result_outdated(change):
+    state = ready_state()
+    state.finish_draft_run(state.start_draft_run(), result="the result")
+
+    change(state.draft)
+
+    assert state.draft_changed_since_run() is True
+
+
+def test_a_change_back_makes_the_result_current_again():
+    state = ready_state()
+    state.finish_draft_run(state.start_draft_run(), result="the result")
+    state.draft.steps = 48
+    assert state.draft_changed_since_run() is True
+
+    state.draft.steps = 24
+
+    assert state.draft_changed_since_run() is False
+
+
+def test_the_name_of_the_scenario_does_not_make_the_result_outdated():
+    # a name that nobody chose follows the language, and a name is not what was calculated
+    state = ready_state()
+    state.finish_draft_run(state.start_draft_run("Unnamed scenario"), result="the result")
+
+    state.draft.name = "My system"
+    assert state.draft_changed_since_run() is False
+
+    state.language = "de"
+    assert state.draft_changed_since_run() is False
