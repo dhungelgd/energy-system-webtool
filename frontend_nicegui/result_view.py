@@ -42,17 +42,31 @@ def headline_cards(result, tr=ENGLISH):
     ]
 
 
+SOLVER_NAMES = {"highs": "HiGHS", "cbc": "CBC"}        # names of programs: the same in every language
+
+
+def solver_label(name):
+    """The name of a solver as it is written (HiGHS, CBC); an unknown one as it is."""
+
+    return SOLVER_NAMES.get(name, name)
+
+
 def solver_text(result, tr=ENGLISH):
-    """For example: 'Solver: optimal in 2.7 s'."""
+    """For example: 'Solver HiGHS: optimal in 2.7 s' (without the name if the result does not have it)."""
 
     if result.solver is None:
         return tr("result.solver_none")
 
+    named = result.solver.name is not None
+    parts = {"termination": result.solver.termination}
+    if named:
+        parts["name"] = solver_label(result.solver.name)
+
     if result.solver.seconds is None:
-        return tr("result.solver", termination=result.solver.termination)
+        return tr("result.solver_named" if named else "result.solver", **parts)
 
     return tr(
-        "result.solver_time",
-        termination=result.solver.termination,
+        "result.solver_time_named" if named else "result.solver_time",
         seconds=tr.localize(f"{result.solver.seconds:.1f}"),
+        **parts,
     )

@@ -43,7 +43,7 @@ async def test_a_good_scenario_is_described(user: User):
     await user.should_see("Two PV systems, one day")
     await user.should_see("File: two_pv_systems.json")
     await user.should_see("24 hourly steps (1 day) from 01.01.2021 00:00")
-    await user.should_see("Solver: cbc")
+    await user.should_see("Solver: HiGHS")
 
 
 async def test_the_components_are_listed_with_their_own_names_and_what_they_are(user: User):

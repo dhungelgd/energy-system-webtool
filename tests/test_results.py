@@ -190,6 +190,24 @@ def test_solver_information(small_run):
 
 
 @needs_cbc
+def test_the_solver_that_ran_is_named_in_the_result():
+    from backend.solving import highs_available
+
+    output, meta = run(grid_only())
+
+    # the standard is HiGHS; without the package CBC runs instead, and the result says so
+    assert ScenarioResult.from_output(output, meta).solver.name == ("highs" if highs_available() else "cbc")
+
+
+def test_a_result_that_does_not_know_the_solver_has_no_name():
+    meta = {"solver": {"Status": "ok", "Termination condition": "optimal", "Time": 1.0}}
+    output = {"objective": 1.0, "horizon_hours": 24.0, "key_figures": [], "cost_breakdown": pd.DataFrame(),
+              "capacities": pd.DataFrame(), "buses": {}}
+
+    assert ScenarioResult.from_output(output, meta).solver.name is None
+
+
+@needs_cbc
 def test_solver_information_is_optional():
     output, _ = run(grid_only())
 

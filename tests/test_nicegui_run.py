@@ -16,10 +16,12 @@ from nicegui.testing import User  # noqa: E402
 from backend.results import KeyFigure, ScenarioResult, SolverInfo, Table  # noqa: E402
 from backend.scenario_v2 import ScenarioV2  # noqa: E402
 from backend.service import ScenarioError  # noqa: E402
+from backend.solving import highs_available  # noqa: E402
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "scenarios_v2"
 
 needs_cbc = pytest.mark.skipif(shutil.which("cbc") is None, reason="CBC solver is not installed")
+RAN = "HiGHS" if highs_available() else "CBC"          # the standard solver, or CBC where its package is missing
 
 
 def fake_result(cost=72.0, seconds=1.5):
@@ -240,7 +242,7 @@ async def test_a_real_run_in_another_process_gives_the_hand_calculated_cost(user
 
     # starting the process takes a moment
     await user.should_see("72 €", retries=200)
-    await user.should_see("Solver: optimal")
+    await user.should_see(f"Solver {RAN}: optimal")  # the standard solver ran, in its own process
 
 
 def year_scenario():

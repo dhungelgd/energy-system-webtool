@@ -4,7 +4,7 @@ import pytest
 
 from backend.results import KeyFigure, ScenarioResult, SolverInfo, Table
 from backend.i18n import Translator
-from frontend_nicegui.result_view import format_value, headline_cards, solver_text
+from frontend_nicegui.result_view import format_value, headline_cards, solver_label, solver_text
 
 
 def result(solver=None, figures=()):
@@ -106,3 +106,32 @@ def test_the_solver_line_in_english_is_the_default():
 
     assert solver_text(solved) == "Solver: optimal in 1.5 s"
     assert solver_text(result()) == "Solver: no information"
+
+
+# ---------------------------------------------------------------------------
+# the name of the solver that ran
+# ---------------------------------------------------------------------------
+
+def test_the_name_of_the_solver_is_written_when_the_result_knows_it():
+    highs = result(SolverInfo(status="ok", termination="optimal", seconds=45.26, name="highs"))
+    cbc = result(SolverInfo(status="ok", termination="optimal", name="cbc"))
+
+    assert solver_text(highs) == "Solver HiGHS: optimal in 45.3 s"
+    assert solver_text(cbc) == "Solver CBC: optimal"
+
+
+def test_the_name_of_the_solver_is_the_same_in_german_and_the_time_follows_the_language():
+    highs = result(SolverInfo(status="ok", termination="optimal", seconds=45.26, name="highs"))
+
+    assert solver_text(highs, DE) == "Solver HiGHS: optimal in 45,3 s"
+    assert solver_text(result(SolverInfo(status="ok", termination="optimal", name="cbc")), DE) == "Solver CBC: optimal"
+
+
+def test_a_solver_that_is_not_known_is_written_as_it_is():
+    assert solver_label("highs") == "HiGHS" and solver_label("cbc") == "CBC"
+    assert solver_label("gurobi") == "gurobi"
+    assert solver_text(result(SolverInfo(status="ok", termination="optimal", name="gurobi"))) == "Solver gurobi: optimal"
+
+
+def test_a_result_without_the_name_reads_as_before():
+    assert solver_text(result(SolverInfo(status="ok", termination="optimal", seconds=2.66))) == "Solver: optimal in 2.7 s"

@@ -46,7 +46,7 @@ def test_defaults():
     assert scenario.components == []
     assert scenario.time.steps == 8760
     assert scenario.time.resolution == "1h"
-    assert scenario.solver.name == "cbc"
+    assert scenario.solver.name == "highs"
     assert scenario.schema_version == SCHEMA_VERSION
 
 
@@ -151,7 +151,7 @@ def test_to_inputs_gives_what_the_backend_functions_expect():
     assert input_data["timeindex"].freqstr == "h"
     assert input_data["electricity_demand"] == [1.0] * 24
 
-    assert isinstance(solver, SolverConfig) and solver.name == "cbc"
+    assert isinstance(solver, SolverConfig) and solver.name == "highs"
 
 
 def test_to_inputs_restores_empty_values_as_nan():

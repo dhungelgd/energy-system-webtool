@@ -33,7 +33,7 @@ from frontend_nicegui.forms import has_form
 from frontend_nicegui.markers import slug
 from frontend_nicegui.names import component_label, fix_label, group_label, template_label
 from frontend_nicegui.page_state import PageState
-from frontend_nicegui.result_view import headline_cards, solver_text
+from frontend_nicegui.result_view import headline_cards, solver_label, solver_text
 from frontend_nicegui.scenario_view import component_rows, describe_period, series_rows
 
 TITLE = "Energy System Web Tool"
@@ -464,7 +464,7 @@ def home_page():
             ui.label(scenario.name).classes("text-xl font-semibold").mark("scenario-name")
             ui.label(tr("opened.file", name=state.opened.file_name)).classes("text-grey")
             ui.label(tr("scenario.period", period=describe_period(scenario, tr)))
-            ui.label(tr("opened.solver", name=scenario.solver.name))
+            ui.label(tr("opened.solver", name=solver_label(scenario.solver.name)))
 
             ui.label(tr("opened.components")).classes("font-semibold mt-2")
             ui.table(columns=component_columns(tr), rows=component_rows(scenario, tr)).props(

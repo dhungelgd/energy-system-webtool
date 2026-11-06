@@ -16,12 +16,14 @@ from backend.i18n import catalog  # noqa: E402
 from backend.results import KeyFigure, ScenarioResult, SolverInfo, Table  # noqa: E402
 from backend.scenario_v2 import ScenarioV2  # noqa: E402
 from backend.service import ScenarioError  # noqa: E402
+from backend.solving import highs_available  # noqa: E402
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "scenarios_v2"
 
 needs_cbc = pytest.mark.skipif(shutil.which("cbc") is None, reason="CBC solver is not installed")
 
 PRICE = "field-grid-costs-variable_costs"
+RAN = "HiGHS" if highs_available() else "CBC"          # the standard solver, or CBC where its package is missing
 
 
 def fake_result(cost=72.0, seconds=1.5):
@@ -523,5 +525,5 @@ async def test_a_real_run_of_the_draft_gives_the_hand_calculated_cost(user: User
     # starting the process takes a moment: 24 h x 10 kW x 0.30 EUR/kWh = 72 EUR, and 240 kWh from the grid
     await user.should_see("72 €", retries=200)
     await user.should_see("240 kWh")
-    await user.should_see("Solver: optimal")
+    await user.should_see(f"Solver {RAN}: optimal")  # the standard solver, in its own process
     assert not exists(user, "draft-outdated")

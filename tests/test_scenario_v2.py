@@ -43,7 +43,7 @@ def test_an_empty_scenario_is_valid_and_has_the_defaults():
     assert empty.schema_version == 2
     assert empty.name == "Unnamed scenario"
     assert (empty.carriers, empty.components, empty.series, empty.constraints) == ([], [], {}, [])
-    assert empty.time.steps == 8760 and empty.solver.name == "cbc"
+    assert empty.time.steps == 8760 and empty.solver.name == "highs"
 
 
 def test_a_minimal_scenario():

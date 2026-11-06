@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from backend.component_specs import get_spec
 from backend.input_schema import SolverConfig
 from backend.oemof_components import TECH_MAPPING
+from backend.solving import DEFAULT_SOLVER
 
 # the layout of a saved scenario
 SCHEMA_VERSION = 1
@@ -54,7 +55,7 @@ Setting = Union[float, str, bool, None]
 class SolverSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: Literal["cbc"] = "cbc"
+    name: Literal["highs", "cbc"] = DEFAULT_SOLVER
     tee: bool = False
 
 

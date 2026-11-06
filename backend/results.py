@@ -118,6 +118,7 @@ class SolverInfo(BaseModel):
     termination: str
     message: str = ""
     seconds: Union[float, None] = None
+    name: Union[str, None] = None          # the solver that ran: "highs" or "cbc"
 
 
 class FlowTable(BaseModel):
@@ -272,6 +273,7 @@ class ScenarioResult(BaseModel):
                 termination=_name(info.get("Termination condition", "unknown")),
                 message=str(info.get("Termination message", "")),
                 seconds=_number(info.get("Time")),
+                name=info.get("Name"),
             )
 
         return cls(
