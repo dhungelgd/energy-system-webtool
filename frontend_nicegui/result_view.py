@@ -6,7 +6,7 @@ it, so that it is easy to test. What is shown in words takes a translator `tr`
 are English for now.
 """
 
-from backend.i18n import ENGLISH
+from backend.i18n import ENGLISH, Msg
 
 
 def format_value(value, unit, tr=ENGLISH):
@@ -70,3 +70,32 @@ def solver_text(result, tr=ENGLISH):
         seconds=tr.localize(f"{result.solver.seconds:.1f}"),
         **parts,
     )
+
+
+def format_elapsed(seconds):
+    """The time that a run has taken so far: 0:07, 1:12, 1:05:03."""
+
+    whole = max(0, int(seconds))
+    hours, rest = divmod(whole, 3600)
+    minutes, secs = divmod(rest, 60)
+
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def run_failure(error):
+    """Why a run gave no result, as a Msg: in plain words for the usual reasons, else the reason as it is.
+
+    `error` is a ScenarioError. 'unbounded': the optimizer could earn money without end. 'infeasible': the
+    demand cannot be met. 'unknown' and 'infeasibleOrUnbounded': HiGHS cannot tell the two apart.
+    """
+
+    termination = getattr(error, "termination", None)
+
+    if termination == "unbounded":
+        return Msg("run.unbounded")
+    if termination == "infeasible":
+        return Msg("run.infeasible")
+    if termination in ("unknown", "infeasibleOrUnbounded"):
+        return Msg("run.no_solution")
+
+    return Msg("run.failed", reason=str(error))

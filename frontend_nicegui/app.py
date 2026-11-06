@@ -33,7 +33,7 @@ from frontend_nicegui.forms import has_form
 from frontend_nicegui.markers import slug
 from frontend_nicegui.names import component_label, fix_label, group_label, template_label
 from frontend_nicegui.page_state import PageState
-from frontend_nicegui.result_view import headline_cards, solver_label, solver_text
+from frontend_nicegui.result_view import format_elapsed, headline_cards, run_failure, solver_label, solver_text
 from frontend_nicegui.scenario_view import component_rows, describe_period, series_rows
 
 TITLE = "Energy System Web Tool"
@@ -83,7 +83,7 @@ async def execute(scenario):
         return await solve(scenario), None
 
     except ScenarioError as error:
-        return None, Msg("run.failed", reason=str(error))
+        return None, run_failure(error)
 
     except Exception:  # noqa: BLE001 - the page must stay alive whatever happens
         logger.exception("The optimization stopped unexpectedly")
@@ -264,6 +264,18 @@ def home_page():
         show_findings(findings, tr, "findings.title_draft", "draft-findings", on_fix=add_components)
         draft_run_panel(can_run=not any(f.level == "error" for f in findings))
 
+    def running_clock(running, marker):
+        """'Running the optimization... 1:12' next to the spinner, counting up while the run goes on."""
+
+        tr = state.tr
+
+        def text():
+            return tr("run.running_for", time=format_elapsed(state.elapsed()))
+
+        label = ui.label(text() if running else "").mark(marker)
+        if running:
+            ui.timer(1.0, lambda: label.set_text(text()))
+
     def draft_run_panel(can_run):
         """The card to run the scenario that is being built (only when the check finds no errors), and what came
         out of the last run. A result belongs to the scenario as it was run: if the draft was changed since,
@@ -281,7 +293,7 @@ def home_page():
                     button.set_enabled(not state.running)
                     spinner = ui.spinner(size="lg")
                     spinner.visible = state.running_draft
-                    ui.label(tr("run.running") if state.running_draft else "")
+                    running_clock(state.running_draft, "draft-clock")
 
         run = state.draft_run
         if run is None:
@@ -400,7 +412,7 @@ def home_page():
                 button.set_enabled(not state.running)
                 spinner = ui.spinner(size="lg")
                 spinner.visible = here
-                ui.label(tr("run.running") if here else "")
+                running_clock(here, "run-clock")
 
         with ui.column().classes("w-full gap-4").mark("results"):
             if state.run_error is not None:

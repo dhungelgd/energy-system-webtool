@@ -18,13 +18,24 @@ catalogs of backend/i18n.
 - A generation profile is a capacity factor, at most 1 (output per installed kW).
   A profile downloaded for a larger system has values above 1.
 
+`check_unbounded` finds a way to an optimization without an end: a PV system or a wind turbine that may be
+built without an upper limit and earns more from feeding in than it costs. Each plant that is added earns
+money, so the optimizer builds without end and there is no result. It is an error, because nothing can be
+run (HiGHS and CBC both stop with 'unbounded', after minutes for a year). The sum is the same as the model's:
+the revenue of the feed-in for the output of one kW over the simulated period, minus the cost of one kW
+(`calculate_epc`, which the model uses; it does not scale it to a period shorter than a year, and neither does
+this). Checked against the solvers on random systems (tests/test_unbounded.py).
+
 This module does not use Streamlit or NiceGUI, so any frontend can use it.
 """
 
 from backend.blocks import get_path
 from backend.findings import Fixed, SettingRef, coded, reference
+from backend.oemof_components import calculate_epc
 
 FULL_YEAR = 8760
+PROFILE_SOURCES = ("pv", "wind")      # output = profile x installed capacity, at no running cost
+MARGIN_TOLERANCE = 1e-9               # a gain this small is a rounding error, not a trap
 SHARE_TOLERANCE = 0.01              # a profile that adds up to 1 within one percent is fine
 CAPACITY_FACTOR_TOLERANCE = 1e-9
 
@@ -121,3 +132,57 @@ def _generation_profile(component, scenario):
         return []
 
     return [coded("warning", "capacity_factor", component=reference(component), maximum=Fixed(max(numbers), 2))]
+
+
+def check_unbounded(scenario):
+    """Errors for a plant that may be built without an upper limit and earns more than it costs."""
+
+    revenue = _feedin_revenue(scenario)
+    if revenue is None or revenue <= 0:
+        return []
+
+    findings = []
+
+    for component in scenario.components:
+        if component.template not in PROFILE_SOURCES:
+            continue
+
+        margin = _margin_per_kw(component, scenario, revenue)
+        if margin is not None and margin > MARGIN_TOLERANCE:
+            findings.append(coded(
+                "error", "unbounded_plant",
+                component=reference(component), margin=Fixed(margin, 2), revenue=revenue,
+            ))
+
+    return findings
+
+
+def _feedin_revenue(scenario):
+    """The revenue per kWh that feeding in earns, or None if there is no feed-in (or no revenue yet)."""
+
+    for component in scenario.components:
+        if component.template == "grid_feedin":
+            return get_path(component.blocks.get("costs", {}), "revenue")
+
+    return None
+
+
+def _margin_per_kw(component, scenario, revenue):
+    """What one kW of the plant earns from feeding in, minus what it costs, over the simulated period.
+
+    None if the plant cannot be built without end (fixed size, or an upper limit) or if something that the
+    sum needs is missing (that is reported by the other checks).
+    """
+
+    capacity = component.blocks.get("capacity", {})
+    if capacity.get("mode") != "invest" or capacity.get("maximum") is not None:
+        return None
+
+    values = _values(component, scenario, "profile")
+    costs = [capacity.get(key) for key in ("capex", "opex", "lifetime", "interest_rate")]
+    if values is None or any(cost is None for cost in costs) or costs[2] <= 0:
+        return None
+
+    output = sum(v for v in values[:scenario.time.steps] if v is not None)
+
+    return revenue * output - calculate_epc(*costs)

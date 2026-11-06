@@ -381,3 +381,76 @@ def test_the_name_of_the_scenario_does_not_make_the_result_outdated():
 
     state.language = "de"
     assert state.draft_changed_since_run() is False
+
+
+# ---------------------------------------------------------------------------
+# how long a run has been going on
+# ---------------------------------------------------------------------------
+
+class FakeClock:
+    def __init__(self, start=1000.0):
+        self.now = start
+
+    def __call__(self):
+        return self.now
+
+
+def test_nothing_has_run_for_any_time_when_nothing_runs():
+    state = ready_state()
+
+    assert state.elapsed() == 0.0 and state.run_started is None
+
+
+def test_the_time_of_a_run_of_the_draft_counts_from_its_start_and_stops_with_it():
+    state = ready_state()
+    state.clock = FakeClock()
+
+    started = state.start_draft_run()
+    assert state.elapsed() == 0.0
+
+    state.clock.now += 72.5
+    assert state.elapsed() == 72.5
+
+    state.finish_draft_run(started, result="the result")
+    assert state.elapsed() == 0.0 and state.run_started is None
+
+
+def test_the_time_of_a_run_of_an_opened_file_counts_too():
+    state = ready_state()
+    state.opened = OpenedFile(scenario=object(), file_name="x.json")
+    state.clock = FakeClock()
+
+    started = state.start_run()
+    state.clock.now += 5
+    assert state.elapsed() == 5.0
+
+    state.finish_run(started)
+    assert state.elapsed() == 0.0
+
+
+def test_a_run_that_cannot_start_does_not_start_the_clock():
+    state = PageState()
+    state.clock = FakeClock()
+
+    assert state.start_draft_run() is None and state.start_run() is None
+    assert state.run_started is None
+
+
+def test_a_clock_that_goes_back_does_not_give_a_negative_time():
+    state = ready_state()
+    state.clock = FakeClock()
+    state.start_draft_run()
+
+    state.clock.now -= 10
+
+    assert state.elapsed() == 0.0
+
+
+def test_a_second_start_does_not_move_the_start_of_the_run_that_is_going_on():
+    state = ready_state()
+    state.clock = FakeClock()
+    state.start_draft_run()
+    state.clock.now += 30
+
+    assert state.start_draft_run() is None
+    assert state.elapsed() == 30.0

@@ -2,6 +2,7 @@
 
 import logging
 import math
+import pickle
 import types
 from pathlib import Path
 from typing import get_args
@@ -251,6 +252,8 @@ def test_a_problem_without_an_optimum_is_explained_in_the_same_words_by_both_sol
     message = str(raised.value)
     assert message.startswith("The solver did not return an optimal solution. Instead the optimization ended with")
     assert f"termination condition: {word}" in message
+    assert raised.value.termination == word                              # the reason, to be explained in other words
+    assert isinstance(raised.value.__cause__, solving.NotOptimal)
 
 
 def _with_solver(scenario, solver):
@@ -264,3 +267,49 @@ def test_the_solver_does_not_leave_the_model_changed_for_the_post_processing():
     result = run(many_components(), "highs")
 
     assert result.solver.termination == "optimal" and result.capacities.rows        # the tables are made from the solution
+
+
+# ---------------------------------------------------------------------------
+# the reason that a solver gave
+# ---------------------------------------------------------------------------
+
+def test_the_reason_of_a_failed_run_comes_with_the_error_and_survives_the_trip_between_processes():
+    # a run happens in another process: the error is sent back by pickle and must keep its reason
+    error = ScenarioError("no optimum", termination="unbounded")
+    copy = pickle.loads(pickle.dumps(error))
+
+    assert (str(copy), copy.termination) == ("no optimum", "unbounded")
+    assert pickle.loads(pickle.dumps(ScenarioError("plain"))).termination is None
+    assert ScenarioError("plain").termination is None
+
+
+def test_not_optimal_has_status_and_reason_and_survives_pickle_too():
+    error = solving.NotOptimal("warning", "unbounded")
+    copy = pickle.loads(pickle.dumps(error))
+
+    assert (copy.status, copy.termination, str(copy)) == ("warning", "unbounded", str(error))
+    assert isinstance(error, RuntimeError)                               # the callers that catch RuntimeError still do
+
+
+def test_an_error_of_oemof_that_gives_no_reason_is_not_changed():
+    class Model:
+        def solve(self, **options):
+            raise RuntimeError("something else went wrong")
+
+    with pytest.raises(RuntimeError, match="something else went wrong") as raised:
+        solving._solve_cbc(Model(), False)
+
+    assert not isinstance(raised.value, solving.NotOptimal)
+
+
+def test_the_reason_is_taken_from_the_words_of_oemof():
+    class Model:
+        def solve(self, **options):
+            raise RuntimeError(
+                "The solver did not return an optimal solution. Instead the optimization ended with\n"
+                "       - status: warning\n       - termination condition: unbounded")
+
+    with pytest.raises(solving.NotOptimal) as raised:
+        solving._solve_cbc(Model(), False)
+
+    assert (raised.value.status, raised.value.termination) == ("warning", "unbounded")

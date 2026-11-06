@@ -3,6 +3,7 @@
 import asyncio
 import shutil
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -73,12 +74,16 @@ def day_csv(values):
 DAY = [round(1 + h / 10, 1) for h in range(24)]
 
 
-async def give_demand(user: User, values=DAY):
-    await field(user, "series-upload-demand").handle_uploads([SmallFileUpload("last.csv", "text/csv", day_csv(values))])
-    await user.should_see(marker="series-prepare-demand")
-    user.find(marker="series-use-demand").click()
-    await user.should_see(marker="series-summary-demand")
+async def give_series(user: User, key: str, values):
+    await field(user, f"series-upload-{key}").handle_uploads([SmallFileUpload("daten.csv", "text/csv", day_csv(values))])
+    await user.should_see(marker=f"series-prepare-{key}")
+    user.find(marker=f"series-use-{key}").click()
+    await user.should_see(marker=f"series-summary-{key}")
     await settle()
+
+
+async def give_demand(user: User, values=DAY):
+    await give_series(user, "demand", values)
 
 
 async def build_draft(user: User, language=None, with_data=True):
@@ -505,6 +510,222 @@ async def test_while_the_opened_file_runs_the_draft_cannot_be_run_and_shows_no_s
     release.set()
     await user.should_see("72 €")
     assert run_button(user).enabled
+
+
+# ---------------------------------------------------------------------------
+# the clock next to the spinner
+# ---------------------------------------------------------------------------
+
+def use_clock(monkeypatch, start=1000.0):
+    """Put a clock that the test sets into the pages (before the page is opened). Returns the list [now]."""
+
+    now = [start]
+    monkeypatch.setattr(sys.modules["frontend_nicegui.page_state"], "time", types.SimpleNamespace(monotonic=lambda: now[0]))
+
+    return now
+
+
+async def test_the_clock_counts_up_while_the_optimization_runs_and_is_gone_afterwards(user: User, monkeypatch):
+    now = use_clock(monkeypatch)
+    release = asyncio.Event()
+
+    async def solver(scenario):
+        await release.wait()
+        return fake_result()
+
+    use_solver(monkeypatch, solver)
+    await build_draft(user)
+    assert field(user, "draft-clock").text == ""                           # nothing runs: nothing to count
+
+    user.find(marker="draft-run").click()
+    await user.should_see("Running the optimization... 0:00")
+
+    now[0] += 72
+    await asyncio.sleep(1.5)                                              # the clock ticks once a second
+    await user.should_see("Running the optimization... 1:12")
+
+    now[0] += 3600
+    await asyncio.sleep(1.5)
+    await user.should_see("Running the optimization... 1:01:12")
+
+    release.set()
+    await user.should_see("72 €")
+    await user.should_not_see("Running the optimization...")
+
+
+async def test_the_clock_is_in_german_too(user: User, monkeypatch):
+    now = use_clock(monkeypatch)
+    release = asyncio.Event()
+
+    async def solver(scenario):
+        await release.wait()
+        return fake_result()
+
+    use_solver(monkeypatch, solver)
+    await build_draft(user, language="de")
+
+    user.find(marker="draft-run").click()
+    await user.should_see("Die Optimierung läuft ... 0:00")
+    now[0] += 5
+    await asyncio.sleep(1.5)
+
+    await user.should_see("Die Optimierung läuft ... 0:05")
+    release.set()
+
+
+async def test_the_clock_goes_on_when_the_page_is_drawn_again_while_it_runs(user: User, monkeypatch):
+    now = use_clock(monkeypatch)
+    release = asyncio.Event()
+
+    async def solver(scenario):
+        await release.wait()
+        return fake_result()
+
+    use_solver(monkeypatch, solver)
+    await build_draft(user)
+    user.find(marker="draft-run").click()
+    await user.should_see("Running the optimization... 0:00")
+    now[0] += 40
+
+    user.find(marker=PRICE).clear().type("0.35")                          # a change draws the card again
+    await settle()
+
+    await user.should_see("Running the optimization... 0:40")             # from the start of the run, not from zero
+    release.set()
+
+
+async def test_the_run_of_an_opened_file_has_its_clock_too(user: User, monkeypatch):
+    now = use_clock(monkeypatch)
+    release = asyncio.Event()
+
+    async def solver(scenario):
+        await release.wait()
+        return fake_result()
+
+    use_solver(monkeypatch, solver)
+    await user.open("/")
+    await open_example(user, "pv_and_grid")
+
+    user.find(marker="run").click()
+    await user.should_see("Running the optimization... 0:00")
+    now[0] += 125
+    await asyncio.sleep(1.5)
+
+    await user.should_see("Running the optimization... 2:05")
+    assert len(user.find(content="Running the optimization...").elements) == 1
+    release.set()
+    await user.should_see("72 €")
+
+
+# ---------------------------------------------------------------------------
+# why a run gave no result, in plain words
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("termination, sentence", [
+    ("unbounded", "The optimization has no limit: as the scenario is set up, the system could earn money without end."),
+    ("infeasible", "The optimization has no solution: with the components and sizes you chose, the demand cannot be met."),
+    ("unknown", "The optimization found no solution. Either the demand cannot be met"),
+    ("infeasibleOrUnbounded", "The optimization found no solution. Either the demand cannot be met"),
+])
+async def test_the_usual_reasons_of_a_failed_run_are_explained_in_plain_words(user: User, monkeypatch, termination, sentence):
+    async def solver(scenario):
+        raise ScenarioError("technical text that nobody should have to read", termination=termination)
+
+    use_solver(monkeypatch, solver)
+    await build_draft(user)
+
+    user.find(marker="draft-run").click()
+
+    await user.should_see(sentence)
+    await user.should_not_see("technical text that nobody should have to read")
+    assert run_button(user).enabled
+
+
+async def test_the_reason_is_explained_in_german(user: User, monkeypatch):
+    async def solver(scenario):
+        raise ScenarioError("x", termination="unbounded")
+
+    use_solver(monkeypatch, solver)
+    await build_draft(user, language="de")
+
+    user.find(marker="draft-run").click()
+
+    await user.should_see("Die Optimierung hat keine Grenze")
+    await user.should_see("Setzen Sie eine Obergrenze für die Anlage oder senken Sie die Einspeisevergütung.")
+
+
+async def test_a_reason_of_a_solver_that_has_no_words_of_its_own_is_shown_as_it_is(user: User, monkeypatch):
+    async def solver(scenario):
+        raise ScenarioError("stopped by the time limit", termination="maxTimeLimit")
+
+    use_solver(monkeypatch, solver)
+    await build_draft(user)
+
+    user.find(marker="draft-run").click()
+
+    await user.should_see("The optimization could not be completed: stopped by the time limit")
+
+
+async def test_the_reason_of_an_opened_file_is_explained_too(user: User, monkeypatch):
+    async def solver(scenario):
+        raise ScenarioError("x", termination="infeasible")
+
+    use_solver(monkeypatch, solver)
+    await user.open("/")
+    await open_example(user, "pv_and_grid")
+
+    user.find(marker="run").click()
+
+    await user.should_see("The optimization has no solution: with the components and sizes you chose")
+
+
+# ---------------------------------------------------------------------------
+# the trap is found before the run
+# ---------------------------------------------------------------------------
+
+async def build_pv_draft(user: User, language=None):
+    """A day of a PV system with the feed-in: the plant may be built without an upper limit and costs next to nothing."""
+
+    await user.open("/" if language is None else f"/?lang={language}")
+    user.find(marker="template-pv-system").click()
+    await user.should_see(marker="selection-count")
+    if not field(user, "component-grid_feedin").value:
+        user.find(marker="component-grid_feedin").click()
+    user.find(marker="draft-steps").clear().type("24")
+    await settle()
+    field(user, "field-pv-capacity-mode").value = "invest"
+    await settle()
+    user.find(marker="field-pv-capacity-capex").clear().type("1")          # 1 EUR per kW: any feed-in pays for it
+    await settle()
+    await give_demand(user)
+    await give_series(user, "pv", [0.5] * 24)
+
+
+async def test_a_plant_that_would_be_built_without_end_is_an_error_and_the_run_is_not_offered(user: User):
+    await build_pv_draft(user)
+
+    await user.should_see("PV system: without an upper limit this plant earns more from feeding in than it costs")
+    await user.should_see("Set an upper limit for the plant or lower the feed-in revenue.")
+    assert not exists(user, "draft-run")
+    await user.should_see("Fix the errors above")
+
+
+async def test_an_upper_limit_removes_the_error_and_offers_the_run(user: User):
+    await build_pv_draft(user)
+    await user.should_see("without an upper limit this plant earns more")
+
+    user.find(marker="field-pv-capacity-maximum").clear().type("50")
+    await settle()
+
+    await user.should_not_see("without an upper limit this plant earns more")
+    assert exists(user, "draft-run")
+
+
+async def test_the_trap_is_worded_in_german(user: User):
+    await build_pv_draft(user, language="de")
+
+    await user.should_see("PV-Anlage: Ohne Obergrenze verdient diese Anlage mit der Einspeisung mehr, als sie kostet")
+    assert not exists(user, "draft-run")
 
 
 # ---------------------------------------------------------------------------

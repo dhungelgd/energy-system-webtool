@@ -3,8 +3,9 @@
 import pytest
 
 from backend.results import KeyFigure, ScenarioResult, SolverInfo, Table
-from backend.i18n import Translator
-from frontend_nicegui.result_view import format_value, headline_cards, solver_label, solver_text
+from backend.i18n import Msg, Translator
+from backend.service import ScenarioError
+from frontend_nicegui.result_view import format_elapsed, format_value, headline_cards, run_failure, solver_label, solver_text
 
 
 def result(solver=None, figures=()):
@@ -135,3 +136,53 @@ def test_a_solver_that_is_not_known_is_written_as_it_is():
 
 def test_a_result_without_the_name_reads_as_before():
     assert solver_text(result(SolverInfo(status="ok", termination="optimal", seconds=2.66))) == "Solver: optimal in 2.7 s"
+
+
+# ---------------------------------------------------------------------------
+# the time that a run has taken
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("seconds, text", [
+    (0, "0:00"), (0.9, "0:00"), (1, "0:01"), (7.4, "0:07"), (59.9, "0:59"), (60, "1:00"), (72, "1:12"),
+    (331.1, "5:31"), (3599, "59:59"), (3600, "1:00:00"), (3725, "1:02:05"), (-5, "0:00"),
+])
+def test_the_time_of_a_run_is_written_as_minutes_and_seconds(seconds, text):
+    assert format_elapsed(seconds) == text
+
+
+# ---------------------------------------------------------------------------
+# why a run gave no result
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("termination, code", [
+    ("unbounded", "run.unbounded"),
+    ("infeasible", "run.infeasible"),
+    ("unknown", "run.no_solution"),                      # HiGHS cannot tell the two apart
+    ("infeasibleOrUnbounded", "run.no_solution"),
+])
+def test_the_usual_reasons_of_a_failed_run_are_explained_in_plain_words(termination, code):
+    assert run_failure(ScenarioError("technical text", termination=termination)) == Msg(code)
+
+
+@pytest.mark.parametrize("error", [
+    ScenarioError("[pv] fixed mode requires capacity > 0."),                       # no reason of a solver
+    ScenarioError("time limit", termination="maxTimeLimit"),                       # a reason that has no words of its own
+])
+def test_any_other_reason_is_given_as_it_is(error):
+    assert run_failure(error) == Msg("run.failed", reason=str(error))
+
+
+def test_each_reason_has_a_sentence_in_both_languages_and_says_what_to_do():
+    en, de = Translator("en"), Translator("de")
+
+    for code in ("run.unbounded", "run.infeasible", "run.no_solution"):
+        english, german = en.message(Msg(code)), de.message(Msg(code))
+        assert "{" not in english and "{" not in german and english != german
+    assert "upper limit" in en.message(Msg("run.unbounded")) and "feed-in revenue" in en.message(Msg("run.unbounded"))
+    assert "Obergrenze" in de.message(Msg("run.unbounded")) and "Einspeisevergütung" in de.message(Msg("run.unbounded"))
+    assert "demand cannot be met" in en.message(Msg("run.infeasible"))
+    assert "Bedarf" in de.message(Msg("run.infeasible"))
+
+
+def test_a_reason_that_is_unknown_to_the_page_does_not_break_it():
+    assert run_failure(Exception("not a ScenarioError")) == Msg("run.failed", reason="not a ScenarioError")

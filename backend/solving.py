@@ -14,6 +14,7 @@ This module does not use Streamlit or NiceGUI, so any frontend can use it.
 """
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 
@@ -30,6 +31,23 @@ ZERO = 1e-9
 
 # oemof leaves None in these two attributes of the model, and the interface of HiGHS asks them
 EMPTY_SUFFIXES = ("dual", "rc")
+
+
+class NotOptimal(RuntimeError):
+    """The solver did not find an optimal solution. `termination` says why: 'unbounded', 'infeasible', ..."""
+
+    def __init__(self, status, termination):
+        self.status = str(status)
+        self.termination = str(termination)
+
+        super().__init__(
+            "The solver did not return an optimal solution. Instead the optimization ended with\n"
+            f"       - status: {self.status}\n"
+            f"       - termination condition: {self.termination}"
+        )
+
+    def __reduce__(self):
+        return (type(self), (self.status, self.termination))
 
 
 @dataclass(frozen=True)
@@ -54,8 +72,9 @@ def highs_available():
 def solve(model, name=DEFAULT_SOLVER, tee=False):
     """Solve an oemof model with the solver `name` and return a SolveInfo.
 
-    RuntimeError if the solver does not find an optimal solution (the message gives the reason, for example
-    'unbounded' or 'infeasible'; the same words for both solvers). ValueError for a solver that does not exist.
+    NotOptimal (a RuntimeError) if the solver does not find an optimal solution: its `termination` and its
+    message give the reason, for example 'unbounded' or 'infeasible', in the same words for both solvers.
+    ValueError for a solver that does not exist.
     """
 
     if name not in SOLVERS:
@@ -75,18 +94,15 @@ def solve(model, name=DEFAULT_SOLVER, tee=False):
     return SolveInfo(name=ran, seconds=seconds)
 
 
-def _not_optimal(status, termination):
-    """The error for a solve that did not end with an optimum (the words of oemof, for both solvers)."""
-
-    return RuntimeError(
-        "The solver did not return an optimal solution. Instead the optimization ended with\n"
-        f"       - status: {status}\n"
-        f"       - termination condition: {termination}"
-    )
-
-
 def _solve_cbc(model, tee):
-    model.solve(solver="cbc", solve_kwargs={"tee": tee})              # oemof raises RuntimeError itself
+    try:
+        model.solve(solver="cbc", solve_kwargs={"tee": tee})
+    except RuntimeError as error:
+        # oemof says why in its message; the same error as HiGHS gives, so that the reason can be asked for
+        found = re.search(r"status:\s*(\S+).*?termination condition:\s*(\S+)", str(error), re.DOTALL)
+        if found is None:
+            raise
+        raise NotOptimal(found.group(1), found.group(2)) from error
 
 
 def _solve_highs(model, tee):
@@ -108,7 +124,7 @@ def _solve_highs(model, tee):
     status = results.solver.status
     termination = results.solver.termination_condition
     if not (status == "ok" and termination == "optimal"):
-        raise _not_optimal(status, termination)
+        raise NotOptimal(status, termination)
 
     model.solutions.load_from(results)
 

@@ -18,7 +18,19 @@ from backend.system_check import check_system
 
 
 class ScenarioError(Exception):
-    """The optimization could not be completed. The message is for the user."""
+    """The optimization could not be completed. The message is for the user.
+
+    `termination` is the reason the solver gave ('unbounded', 'infeasible', ...) when it found no optimum;
+    otherwise None. It lets an interface explain the usual reasons in its own words.
+    """
+
+    def __init__(self, message="", termination=None):
+        super().__init__(message)
+        self.termination = termination
+
+    def __reduce__(self):
+        # so that it can be sent between processes (pickle) with its reason
+        return (type(self), (str(self), self.termination))
 
 
 class ScenarioNotReady(ScenarioError):
@@ -86,6 +98,6 @@ def run(scenario, include_flows=True, check_first=True):
         output = collect_results(results, meta_results, config, selected)
 
     except (ValueError, RuntimeError) as error:
-        raise ScenarioError(str(error)) from error
+        raise ScenarioError(str(error), termination=getattr(error, "termination", None)) from error
 
     return ScenarioResult.from_output(output, meta_results, include_flows=include_flows)

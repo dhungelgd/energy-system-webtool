@@ -5,6 +5,7 @@ the language changes, the whole page is drawn again from it, and nothing the vis
 done is lost (the scenario that is being built, the file that was opened, the result).
 """
 
+import time
 from dataclasses import dataclass
 
 from backend import service_v2
@@ -49,6 +50,8 @@ class PageState:
         self.run_error = None         # a Msg: why the last run did not give a result
         self.running = False          # a run is going on (of the draft or of the opened file: one at a time)
         self.running_draft = False    # ... and it is the run of the draft
+        self.clock = time.monotonic   # where the time comes from (the tests put their own here)
+        self.run_started = None       # the time on the clock when the run that is going on started
         self.draft_run = None         # a DraftRun: the last run of the scenario that is being built
         self.language_toggle = None   # the page puts its language switch here, to block it during a run
         self.language = language
@@ -95,6 +98,13 @@ class PageState:
             self.opened = OpenedFile(scenario, file_name)
             self.file_error = None
 
+    # ----- how long the run has been going on ------------------------------
+
+    def elapsed(self):
+        """The seconds since the run that is going on started (0 if nothing is running)."""
+
+        return 0.0 if self.run_started is None else max(0.0, self.clock() - self.run_started)
+
     # ----- the run of the scenario that is being built ---------------------
 
     def start_draft_run(self, default_name=DEFAULT_NAME):
@@ -110,6 +120,7 @@ class PageState:
 
         self.running = True
         self.running_draft = True
+        self.run_started = self.clock()
         self.draft_run = DraftRun(scenario)          # the result of an earlier run is gone
         return self.draft_run
 
@@ -118,6 +129,7 @@ class PageState:
 
         self.running = False
         self.running_draft = False
+        self.run_started = None
 
         if self.draft_run is started:
             started.result = result
@@ -142,6 +154,7 @@ class PageState:
             return None
 
         self.running = True
+        self.run_started = self.clock()
         self.result = None
         self.run_error = None
         return self.opened
@@ -150,6 +163,7 @@ class PageState:
         """Note that the run is over. The outcome is only kept if the same file is still open."""
 
         self.running = False
+        self.run_started = None
 
         if self.opened is started:
             self.result = result
