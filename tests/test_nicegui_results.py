@@ -112,8 +112,9 @@ async def test_a_result_has_a_tab_for_each_energy_carrier_the_costs_and_the_capa
     assert [label_of(user, f"draft-tab-{name}") for name in ("bus-electricity", "bus-heat", "bus-gas", "costs", "capacities")] == [
         "Electricity", "Heat", "Gas", "Costs", "Capacities"]
     with user.client:
-        tabs = [e for e in ElementFilter(kind=ui.tab)]
-    assert len(tabs) == 5
+        labels = [e.props["label"] for e in ElementFilter(kind=ui.tab)]
+    # the three views of the page have tabs too: System, Check, Results
+    assert labels.count("Electricity") == labels.count("Costs") == 1 and len(labels) == 3 + 5
 
 
 async def test_the_tabs_are_in_german(user: User, monkeypatch):

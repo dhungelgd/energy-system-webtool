@@ -24,6 +24,7 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "scenarios_v2"
 needs_cbc = pytest.mark.skipif(shutil.which("cbc") is None, reason="CBC solver is not installed")
 
 PRICE = "field-grid-costs-variable_costs"
+
 RAN = "HiGHS" if highs_available() else "CBC"          # the standard solver, or CBC where its package is missing
 
 
@@ -107,37 +108,41 @@ async def switched_to(user: User, language: str):
 # when the card to run is there
 # ---------------------------------------------------------------------------
 
-async def test_there_is_no_card_to_run_while_the_check_finds_errors(user: User):
+
+async def test_the_run_button_is_blocked_while_the_check_finds_errors(user: User):
     await build_draft(user, with_data=False)                          # the demand has no data
 
     await user.should_see("Fix the errors above")
-    assert not exists(user, "draft-run")
-    await user.should_not_see("Run the optimization")
+    assert exists(user, "draft-run") and not run_button(user).enabled
+    assert "error" in field(user, "status").text                      # the top bar says what is wrong
+    await user.should_see("Fix the errors first")                     # what the blocked button says when pointed at
 
 
-async def test_a_draft_without_errors_offers_to_run(user: User):
+async def test_a_draft_without_errors_can_be_run(user: User):
     await build_draft(user)
 
-    await user.should_see("Run the optimization")
     assert exists(user, "draft-run") and run_button(user).enabled
+    assert "error" not in field(user, "status").text
 
 
-async def test_the_card_goes_away_when_the_data_is_taken_away_and_comes_back_with_it(user: User):
+async def test_the_run_button_is_blocked_when_the_data_is_taken_away_and_free_again_with_it(user: User):
     await build_draft(user)
-    assert exists(user, "draft-run")
+    assert run_button(user).enabled
 
     user.find(marker="series-remove-demand").click()
     await settle()
-    assert not exists(user, "draft-run")
+    assert not run_button(user).enabled
 
     await give_demand(user)
-    assert exists(user, "draft-run")
+    assert run_button(user).enabled
 
 
-async def test_nothing_is_offered_when_nothing_is_chosen(user: User):
+async def test_nothing_can_be_run_when_nothing_is_chosen(user: User):
     await user.open("/")
 
-    assert not exists(user, "draft-run") and not exists(user, "draft-results")
+    assert not run_button(user).enabled and not exists(user, "draft-results")
+    assert field(user, "status").text == "Choose components"
+    assert exists(user, "draft-results-empty")
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +187,7 @@ async def test_a_scenario_without_a_name_is_run_with_the_default_name_in_the_lan
     assert received == [catalog("de")["scenario.default_name"]]
 
 
-async def test_the_headline_figures_are_shown_below_the_check(user: User, monkeypatch):
+async def test_the_headline_figures_are_shown_in_the_results_view(user: User, monkeypatch):
     async def solver(scenario):
         return fake_result()
 
@@ -197,8 +202,8 @@ async def test_the_headline_figures_are_shown_below_the_check(user: User, monkey
     await user.should_see("Solver: optimal in 1.5 s")
     assert len(user.find(marker="headline").elements) == 2
     results = list(user.client.content.descendants())
-    assert results.index(field(user, "draft-findings")) < results.index(field(user, "draft-run")) \
-        < results.index(field(user, "draft-results")) < results.index(field(user, "form-demand"))
+    assert results.index(field(user, "form-demand")) < results.index(field(user, "draft-findings")) \
+        < results.index(field(user, "draft-results"))                    # the views: System, Check, Results
     assert not exists(user, "draft-outdated")
 
 
@@ -215,7 +220,7 @@ async def test_the_button_is_blocked_while_it_runs_and_so_is_the_language_and_bo
     await build_draft(user)
 
     user.find(marker="draft-run").click()
-    await user.should_see("Running the optimization...")
+    await user.should_see(marker="status", content="Running")
     assert not run_button(user).enabled
     assert not field(user, "language").enabled
     await user.should_not_see("System cost")
@@ -224,7 +229,7 @@ async def test_the_button_is_blocked_while_it_runs_and_so_is_the_language_and_bo
     await user.should_see("72 €")
 
     assert run_button(user).enabled and field(user, "language").enabled
-    await user.should_not_see("Running the optimization...")
+    assert "Running" not in field(user, "status").text
 
 
 async def test_pressing_twice_at_once_runs_once(user: User, monkeypatch):
@@ -241,7 +246,7 @@ async def test_pressing_twice_at_once_runs_once(user: User, monkeypatch):
 
     user.find(marker="draft-run").click()
     user.find(marker="draft-run").click()
-    await user.should_see("Running the optimization...")
+    await user.should_see(marker="status", content="Running")
     release.set()
     await user.should_see("72 €")
 
@@ -301,7 +306,7 @@ async def test_a_change_while_the_optimization_runs_makes_the_result_outdated_wh
     use_solver(monkeypatch, solver)
     await build_draft(user)
     user.find(marker="draft-run").click()
-    await user.should_see("Running the optimization...")
+    await user.should_see(marker="status", content="Running")
 
     user.find(marker=PRICE).clear().type("0.35")                          # the form can be used while it runs
     await settle()
@@ -326,7 +331,7 @@ async def test_the_name_of_the_scenario_does_not_make_the_result_outdated(user: 
     assert not exists(user, "draft-outdated")
 
 
-async def test_a_result_stays_when_a_change_leaves_errors_and_the_card_to_run_goes(user: User, monkeypatch):
+async def test_a_result_stays_when_a_change_leaves_errors_and_the_run_button_is_blocked(user: User, monkeypatch):
     async def solver(scenario):
         return fake_result()
 
@@ -338,7 +343,7 @@ async def test_a_result_stays_when_a_change_leaves_errors_and_the_card_to_run_go
     user.find(marker="series-remove-demand").click()
     await settle()
 
-    assert not exists(user, "draft-run")                                   # nothing to run now ...
+    assert not run_button(user).enabled                                    # nothing to run now ...
     await user.should_see("72 €")                                          # ... but the result is still there
     await user.should_see("You changed the scenario after this run.")
 
@@ -468,7 +473,7 @@ async def test_the_run_of_the_draft_and_the_run_of_an_opened_file_are_separate(u
     assert len(user.find(marker="headline").elements) == 4
 
 
-async def test_while_the_draft_runs_the_opened_file_cannot_be_run_and_shows_no_spinner(user: User, monkeypatch):
+async def test_while_the_draft_runs_the_opened_file_cannot_be_run_and_shows_no_clock(user: User, monkeypatch):
     release = asyncio.Event()
 
     async def solver(scenario):
@@ -480,10 +485,10 @@ async def test_while_the_draft_runs_the_opened_file_cannot_be_run_and_shows_no_s
     await open_example(user, "pv_and_grid")
 
     user.find(marker="draft-run").click()
-    await user.should_see("Running the optimization...")
+    await user.should_see(marker="status", content="Running")
 
     assert not field(user, "run").enabled
-    assert len(user.find(content="Running the optimization...").elements) == 1      # one spinner text, in the draft
+    assert field(user, "run-clock").text == ""                              # the clock is in the top bar, for the draft
 
     release.set()
     await user.should_see("72 €")
@@ -525,7 +530,7 @@ def use_clock(monkeypatch, start=1000.0):
     return now
 
 
-async def test_the_clock_counts_up_while_the_optimization_runs_and_is_gone_afterwards(user: User, monkeypatch):
+async def test_the_clock_counts_up_in_the_top_bar_while_the_optimization_runs_and_is_gone_afterwards(user: User, monkeypatch):
     now = use_clock(monkeypatch)
     release = asyncio.Event()
 
@@ -535,22 +540,22 @@ async def test_the_clock_counts_up_while_the_optimization_runs_and_is_gone_after
 
     use_solver(monkeypatch, solver)
     await build_draft(user)
-    assert field(user, "draft-clock").text == ""                           # nothing runs: nothing to count
+    assert "Running" not in field(user, "status").text                    # nothing runs: nothing to count
 
     user.find(marker="draft-run").click()
-    await user.should_see("Running the optimization... 0:00")
+    await user.should_see(marker="status", content="Running 0:00")
 
     now[0] += 72
     await asyncio.sleep(1.5)                                              # the clock ticks once a second
-    await user.should_see("Running the optimization... 1:12")
+    await user.should_see(marker="status", content="Running 1:12")
 
     now[0] += 3600
     await asyncio.sleep(1.5)
-    await user.should_see("Running the optimization... 1:01:12")
+    await user.should_see(marker="status", content="Running 1:01:12")
 
     release.set()
     await user.should_see("72 €")
-    await user.should_not_see("Running the optimization...")
+    assert "Running" not in field(user, "status").text
 
 
 async def test_the_clock_is_in_german_too(user: User, monkeypatch):
@@ -565,11 +570,11 @@ async def test_the_clock_is_in_german_too(user: User, monkeypatch):
     await build_draft(user, language="de")
 
     user.find(marker="draft-run").click()
-    await user.should_see("Die Optimierung läuft ... 0:00")
+    await user.should_see(marker="status", content="Läuft 0:00")
     now[0] += 5
     await asyncio.sleep(1.5)
 
-    await user.should_see("Die Optimierung läuft ... 0:05")
+    await user.should_see(marker="status", content="Läuft 0:05")
     release.set()
 
 
@@ -584,13 +589,13 @@ async def test_the_clock_goes_on_when_the_page_is_drawn_again_while_it_runs(user
     use_solver(monkeypatch, solver)
     await build_draft(user)
     user.find(marker="draft-run").click()
-    await user.should_see("Running the optimization... 0:00")
+    await user.should_see(marker="status", content="Running 0:00")
     now[0] += 40
 
-    user.find(marker=PRICE).clear().type("0.35")                          # a change draws the card again
+    user.find(marker=PRICE).clear().type("0.35")                          # a change draws the top bar again
     await settle()
 
-    await user.should_see("Running the optimization... 0:40")             # from the start of the run, not from zero
+    await user.should_see(marker="status", content="Running 0:40")        # from the start of the run, not from zero
     release.set()
 
 
@@ -701,16 +706,16 @@ async def build_pv_draft(user: User, language=None):
     await give_series(user, "pv", [0.5] * 24)
 
 
-async def test_a_plant_that_would_be_built_without_end_is_an_error_and_the_run_is_not_offered(user: User):
+async def test_a_plant_that_would_be_built_without_end_is_an_error_and_the_run_is_blocked(user: User):
     await build_pv_draft(user)
 
     await user.should_see("PV system: without an upper limit this plant earns more from feeding in than it costs")
     await user.should_see("Set an upper limit for the plant or lower the feed-in revenue.")
-    assert not exists(user, "draft-run")
+    assert not run_button(user).enabled
     await user.should_see("Fix the errors above")
 
 
-async def test_an_upper_limit_removes_the_error_and_offers_the_run(user: User):
+async def test_an_upper_limit_removes_the_error_and_frees_the_run(user: User):
     await build_pv_draft(user)
     await user.should_see("without an upper limit this plant earns more")
 
@@ -718,14 +723,14 @@ async def test_an_upper_limit_removes_the_error_and_offers_the_run(user: User):
     await settle()
 
     await user.should_not_see("without an upper limit this plant earns more")
-    assert exists(user, "draft-run")
+    assert run_button(user).enabled
 
 
 async def test_the_trap_is_worded_in_german(user: User):
     await build_pv_draft(user, language="de")
 
     await user.should_see("PV-Anlage: Ohne Obergrenze verdient diese Anlage mit der Einspeisung mehr, als sie kostet")
-    assert not exists(user, "draft-run")
+    assert not run_button(user).enabled
 
 
 # ---------------------------------------------------------------------------
@@ -746,5 +751,5 @@ async def test_a_real_run_of_the_draft_gives_the_hand_calculated_cost(user: User
     # starting the process takes a moment: 24 h x 10 kW x 0.30 EUR/kWh = 72 EUR, and 240 kWh from the grid
     await user.should_see("72 €", retries=200)
     await user.should_see("240 kWh")
-    await user.should_see(f"Solver {RAN}: optimal")  # the standard solver, in its own process
+    await user.should_see(f"Solver {RAN}: optimal")                        # the standard solver, in its own process
     assert not exists(user, "draft-outdated")

@@ -131,17 +131,18 @@ def position(user: User, marker: str):
     return list(user.client.content.descendants()).index(field(user, marker))
 
 
-async def test_the_check_is_above_the_settings_and_a_new_card_appears_below_it(user: User):
+async def test_the_views_come_in_the_order_system_check_results_and_a_new_settings_card_joins_the_system_view(user: User):
     await start_with(user, "demand", "pv")
 
-    assert position(user, "component-pv") < position(user, "draft-findings")           # the builder, then the check ...
-    assert position(user, "draft-findings") < position(user, "form-demand") < position(user, "form-pv")   # ... then the cards
-    assert position(user, "form-pv") < position(user, "upload")                       # and the file to open at the end
+    # the system view: the builder, then the settings of each component, and the file to open at the end ...
+    assert position(user, "component-pv") < position(user, "form-demand") < position(user, "form-pv")
+    assert position(user, "form-pv") < position(user, "upload")
+    # ... then the check, then the results
+    assert position(user, "upload") < position(user, "draft-findings") < position(user, "draft-results-empty")
 
     await press(user, "Add Electricity grid")
 
-    assert position(user, "draft-findings") < position(user, "form-grid")             # the new card is below the check
-
+    assert position(user, "component-pv") < position(user, "form-grid") < position(user, "upload")   # in the system view
 
 # ---------------------------------------------------------------------------
 # what a repair leaves alone

@@ -54,6 +54,7 @@ class PageState:
         self.run_started = None       # the time on the clock when the run that is going on started
         self.draft_run = None         # a DraftRun: the last run of the scenario that is being built
         self.language_toggle = None   # the page puts its language switch here, to block it during a run
+        self.view = "system"          # the view that is shown: "system", "check" or "results"
         self.language = language
 
     # ----- the language ----------------------------------------------------

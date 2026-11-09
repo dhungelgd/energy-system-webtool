@@ -43,6 +43,7 @@ from frontend_nicegui.result_view import (
     solver_text,
 )
 from frontend_nicegui.scenario_view import component_rows, describe_period, series_rows
+from frontend_nicegui.status import COLORS, ICONS, badge_of, draft_status, run_hint, status_text
 
 TITLE = "Energy System Web Tool"
 
@@ -180,6 +181,7 @@ def home_page():
     state = PageState(choose_language(request.query_params.get("lang"), request.headers.get("accept-language")))
     boxes = {}                      # the checkboxes of the page that is drawn now
     shown = {"results": None}       # what the block of the results of the draft shows now (see sync_results)
+    chrome = {"findings": (0, 0), "tabs": None, "badge": None}   # what the top bar and the tabs show (see update_chrome)
 
     # ----- the language ----------------------------------------------------
 
@@ -188,6 +190,9 @@ def home_page():
             return                  # the switch is blocked during a run; a run belongs to one page
         state.language = event.value
         content.refresh()
+        header_left.refresh()
+        header_status.refresh()
+        header_lang.refresh()
 
     # ----- your scenario: name and period ----------------------------------
 
@@ -226,11 +231,6 @@ def home_page():
         with ui.card().classes("w-full"):
             ui.label(tr("scenario.heading")).classes("text-xl font-semibold")
 
-            ui.input(
-                tr("scenario.name"), value=draft.name, placeholder=tr("scenario.default_name"), on_change=set_name,
-            ).props(f"outlined dense maxlength={MAX_NAME_LENGTH} debounce={TYPING_DELAY_MS}").classes(
-                "w-full").mark("draft-name")
-
             with ui.row().classes("w-full items-start gap-4"):
                 start_hint = tr("hint.start", first=MIN_YEAR, last=MAX_YEAR)
                 with ui.input(
@@ -268,6 +268,7 @@ def home_page():
 
         if len(draft) == 0:
             ui.label(tr("builder.empty")).classes("text-grey").mark("selection-empty")
+            update_chrome([])
             sync_results()
             return
 
@@ -281,7 +282,7 @@ def home_page():
 
         findings = service_v2.check(scenario)
         show_findings(findings, tr, "findings.title_draft", "draft-findings", on_fix=add_components)
-        draft_run_panel(can_run=not any(f.level == "error" for f in findings))
+        update_chrome(findings)
         sync_results()
 
     def running_clock(running, marker):
@@ -296,24 +297,77 @@ def home_page():
         if running:
             ui.timer(1.0, lambda: label.set_text(text()))
 
-    def draft_run_panel(can_run):
-        """The card to run the scenario that is being built (only when the check finds no errors)."""
+    # ----- the top bar: name, status, run, language -------------------------
 
+    def current_status():
+        errors, warnings = chrome["findings"]
+        return draft_status(
+            has_components=len(state.draft) > 0, errors=errors, warnings=warnings,
+            running=state.running, outdated=state.draft_changed_since_run(),
+        )
+
+    def show_view(name):
+        state.view = name
+        tabs = chrome["tabs"]
+        if tabs is not None and not tabs.is_deleted:
+            tabs.set_value(name)
+
+    def update_chrome(findings):
+        """Tell the top bar and the badge of the Check tab what the check found."""
+
+        errors = sum(1 for finding in findings if finding.level == "error")
+        chrome["findings"] = (errors, len(findings) - errors)
+        header_status.refresh()
+
+        badge = chrome["badge"]
+        if badge is not None and not badge.is_deleted:
+            count, color = badge_of(current_status())
+            badge.set_text(str(count))
+            badge.props(f"color={color}")
+            badge.set_visibility(count > 0)
+
+    @ui.refreshable
+    def header_left():
         tr = state.tr
 
-        if not can_run:
-            return
+        ui.icon("bolt", color="primary").classes("text-3xl")
+        ui.label(tr("app.title")).classes("text-lg font-bold").mark("app-title")
+        ui.input(
+            tr("scenario.name"), value=state.draft.name, placeholder=tr("scenario.default_name"), on_change=set_name,
+        ).props(f"outlined dense maxlength={MAX_NAME_LENGTH} debounce={TYPING_DELAY_MS}").classes(
+            "w-72 ml-4").mark("draft-name")
 
-        with ui.card().classes("w-full"):
-            ui.label(tr("run.heading")).classes("text-xl font-semibold")
-            ui.label(tr("run.intro"))
+    @ui.refreshable
+    def header_status():
+        """The status chip (it opens the check), the spinner while a run goes on, and the Run button."""
 
-            with ui.row().classes("items-center gap-4"):
-                button = ui.button(tr("run.button"), icon="play_arrow", on_click=start_draft).mark("draft-run")
-                button.set_enabled(not state.running)
-                spinner = ui.spinner(size="lg")
-                spinner.visible = state.running_draft
-                running_clock(state.running_draft, "draft-clock")
+        tr = state.tr
+        status = current_status()
+
+        def text():
+            return status_text(status, tr, format_elapsed(state.elapsed()))
+
+        chip = ui.button(text(), icon=ICONS[status.kind], on_click=lambda: show_view("check")).props(
+            f"outline no-caps dense color={COLORS[status.kind]}").mark("status")
+        chip.tooltip(tr("status.open_check"))
+        if status.kind == "running":
+            ui.timer(1.0, lambda: chip.set_text(text()))
+
+        spinner = ui.spinner(size="sm")
+        spinner.visible = state.running_draft
+
+        button = ui.button(tr("run.button"), icon="play_arrow", on_click=start_draft).props("no-caps color=primary").mark(
+            "draft-run")
+        button.set_enabled(status.can_run)
+        hint = run_hint(status, tr)
+        if hint:
+            button.tooltip(hint)
+
+    @ui.refreshable
+    def header_lang():
+        toggle = ui.toggle(LANGUAGES, value=state.language, on_change=switch_language).props("dense no-caps").mark(
+            "language")
+        state.language_toggle = toggle            # a run blocks it and frees it again (start_draft, start)
 
     def results_wanted():
         """What the block of the results should show: is there a draft, and was it changed since the run."""
@@ -331,12 +385,18 @@ def home_page():
         run = state.draft_run
 
         if run is None or not wanted[0]:
+            with ui.column().classes("w-full gap-2").mark("draft-results-empty"):
+                ui.label(tr("results.empty_title")).classes("text-xl font-semibold")
+                ui.label(tr("results.empty_press"))
+                ui.label(tr("run.intro")).classes("text-grey")
             return
 
         changed = wanted[1]
 
         with ui.column().classes("w-full gap-4").mark("draft-results"):
-            if run.error is not None:
+            if run.error is None and run.result is None:
+                ui.label(tr("results.running")).classes("text-grey").mark("draft-running")
+            elif run.error is not None:
                 if not changed:                                   # the error of an earlier version is not news
                     ui.label(tr.message(run.error)).classes("text-negative").mark("draft-run-error")
             elif run.result is not None:
@@ -362,6 +422,8 @@ def home_page():
         overview.refresh()
         draft_results.refresh()         # the result of the run before is gone
         run_panel.refresh()             # one run at a time: the button of the opened file is blocked too
+        header_status.refresh()
+        show_view("results")            # the visitor sees that something is going on, and then the result
 
         result, failure = await execute(started.scenario)
 
@@ -372,6 +434,7 @@ def home_page():
         overview.refresh()
         draft_results.refresh()
         run_panel.refresh()
+        header_status.refresh()
 
     def tr_default_name():
         return state.tr("scenario.default_name")
@@ -537,27 +600,44 @@ def home_page():
 
     # ----- the page --------------------------------------------------------
 
+    def system_view():
+        """Everything that describes the system: the period, the components, their settings, a file to open."""
+
+        ui.label(state.tr("app.subtitle")).classes("text-grey")
+
+        scenario_card()
+        builder_card()
+        settings()
+        open_card()
+        details()
+
     @ui.refreshable
     def content():
         tr = state.tr
 
-        with ui.column().classes("w-full max-w-4xl mx-auto p-6 gap-4"):
-            with ui.row().classes("w-full items-center justify-between"):
-                ui.label(tr("app.title")).classes("text-3xl font-bold").mark("app-title")
-                toggle = ui.toggle(LANGUAGES, value=state.language, on_change=switch_language).props(
-                    "dense no-caps").mark("language")
-                toggle.set_enabled(not state.running)
-                state.language_toggle = toggle
+        with ui.column().classes("w-full max-w-6xl mx-auto p-6 gap-4"):
+            with ui.tabs(value=state.view, on_change=lambda event: setattr(state, "view", event.value)).classes(
+                    "w-full").mark("views") as tabs:
+                ui.tab("system", tr("view.system")).mark("view-system")
+                with ui.tab("check", tr("view.check")).mark("view-check"):
+                    badge = ui.badge("0").props("floating").mark("check-badge")
+                    badge.set_visibility(False)
+                ui.tab("results", tr("view.results")).mark("view-results")
+            chrome["tabs"], chrome["badge"] = tabs, badge
 
-            ui.label(tr("app.subtitle"))
+            with ui.tab_panels(tabs, value=state.view).classes("w-full"):
+                with ui.tab_panel("system"):
+                    system_view()
+                with ui.tab_panel("check"):
+                    overview()              # what was built and what the check finds
+                with ui.tab_panel("results"):
+                    draft_results()
 
-            scenario_card()
-            builder_card()
-            overview()                  # the check is above the settings: a new card appears below it
-            draft_results()
-            settings()
-            open_card()
-            details()
+    with ui.header().classes("bg-white text-dark items-center gap-4 no-wrap q-px-md").props("bordered"):
+        header_left()
+        ui.space()
+        header_status()
+        header_lang()
 
     content()
 
