@@ -10,6 +10,7 @@ from nicegui.testing import User  # noqa: E402
 
 from frontend_nicegui.draft import DEFAULT_NAME, START_HINT, STEPS_HINT  # noqa: E402
 from frontend_nicegui.markers import slug  # noqa: E402
+from tests.helpers import scenario_without_findings  # noqa: E402
 
 
 def field(user: User, marker: str):
@@ -254,16 +255,13 @@ async def test_the_page_says_that_the_forms_and_the_upload_are_not_there_yet(use
 
 
 async def test_the_check_of_the_draft_and_of_an_opened_file_do_not_get_mixed_up(user: User):
-    from pathlib import Path
-
     from nicegui.elements.upload_files import SmallFileUpload
 
     await user.open("/")
     await choose_template(user, "Gas heating")
-    path = Path(__file__).resolve().parent.parent / "examples" / "scenarios_v2" / "pv_and_grid.json"
 
     upload = user.find(marker="upload").elements.pop()
-    await upload.handle_uploads([SmallFileUpload("pv_and_grid.json", "application/json", path.read_bytes())])
+    await upload.handle_uploads([SmallFileUpload("clean.json", "application/json", scenario_without_findings())])
 
     await user.should_see("System check passed. Ready to optimize.")      # the file
     await user.should_see("System check of your scenario")                # the draft, still there

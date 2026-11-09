@@ -8,6 +8,7 @@ import pytest
 pytest.importorskip("nicegui")
 from nicegui.elements.upload_files import SmallFileUpload  # noqa: E402
 from nicegui.testing import User  # noqa: E402
+from tests.helpers import scenario_without_findings  # noqa: E402
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "scenarios_v2"
 
@@ -70,10 +71,19 @@ async def test_the_time_series_are_summarised_and_say_who_uses_them(user: User):
 
 
 async def test_a_scenario_without_problems_is_ready(user: User):
-    await open_example(user, "pv_and_grid")
+    await open_file(user, "clean.json", scenario_without_findings())
 
     await user.should_see("System check passed. Ready to optimize.")
     await user.should_not_see("Fix the errors above")
+
+
+async def test_a_scenario_with_only_a_warning_for_its_short_period_can_be_run(user: User):
+    await open_example(user, "pv_and_grid")                          # a day with an investment
+
+    await user.should_see("PV system is in investment mode, but the scenario covers less than a year.")
+    await user.should_see("There are warnings but no errors. The optimization can be started.")
+    await user.should_not_see("Fix the errors above")
+    await user.should_see(marker="run")
 
 
 async def test_errors_and_warnings_are_shown_and_say_what_to_do(user: User):

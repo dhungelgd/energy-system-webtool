@@ -2,11 +2,14 @@
 
 No NiceGUI code in here, only the decisions about what to show and how to word
 it, so that it is easy to test. What is shown in words takes a translator `tr`
-(English if none is given). The labels of the key figures come from the backend and
-are English for now.
+(English if none is given). The labels of the key figures come from the backend in
+English; result_terms.py translates them.
 """
 
 from backend.i18n import ENGLISH, Msg
+from frontend_nicegui.result_terms import term
+
+FULL_YEAR_HOURS = 8700          # from here on a run counts as a whole year (as in the key figures of the backend)
 
 
 def format_value(value, unit, tr=ENGLISH):
@@ -34,12 +37,25 @@ def headline_cards(result, tr=ENGLISH):
 
     return [
         {
-            "label": figure.label,
+            "label": term(tr, figure.label),
             "value": format_value(figure.value, figure.unit, tr),
-            "help": figure.help,
+            "help": term(tr, figure.help),
         }
         for figure in result.key_figures
     ]
+
+
+def period_caption(result, tr=ENGLISH):
+    """The note under the figures for a period shorter than a year, else None.
+
+    The investment costs are for a whole year, the energy costs only for the simulated period: the system cost
+    of a shorter run is no annual figure (the Streamlit page says the same).
+    """
+
+    if result.horizon_hours >= FULL_YEAR_HOURS:
+        return None
+
+    return tr.plural("result.period_note", max(1, round(result.horizon_hours / 24)))
 
 
 SOLVER_NAMES = {"highs": "HiGHS", "cbc": "CBC"}        # names of programs: the same in every language

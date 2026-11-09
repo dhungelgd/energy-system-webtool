@@ -18,6 +18,10 @@ catalogs of backend/i18n.
 - A generation profile is a capacity factor, at most 1 (output per installed kW).
   A profile downloaded for a larger system has values above 1.
 
+`check_period` warns about components in investment mode when the simulated period is shorter than a year: the
+yearly cost of a plant is not scaled to the period, and the seasons differ, so the sizes are only reliable for a
+whole year.
+
 `check_unbounded` finds a way to an optimization without an end: a PV system or a wind turbine that may be
 built without an upper limit and earns more from feeding in than it costs. Each plant that is added earns
 money, so the optimizer builds without end and there is no result. It is an error, because nothing can be
@@ -34,6 +38,7 @@ from backend.findings import Fixed, SettingRef, coded, reference
 from backend.oemof_components import calculate_epc
 
 FULL_YEAR = 8760
+NEARLY_FULL_YEAR = 8700               # from here on a run counts as a whole year (as in kpis.py)
 PROFILE_SOURCES = ("pv", "wind")      # output = profile x installed capacity, at no running cost
 MARGIN_TOLERANCE = 1e-9               # a gain this small is a rounding error, not a trap
 SHARE_TOLERANCE = 0.01              # a profile that adds up to 1 within one percent is fine
@@ -186,3 +191,16 @@ def _margin_per_kw(component, scenario, revenue):
     output = sum(v for v in values[:scenario.time.steps] if v is not None)
 
     return revenue * output - calculate_epc(*costs)
+
+
+def check_period(scenario):
+    """A warning if components are in investment mode and the simulated period is shorter than a year."""
+
+    if scenario.time.steps >= NEARLY_FULL_YEAR:
+        return []
+
+    sized = [c for c in scenario.components if c.blocks.get("capacity", {}).get("mode") == "invest"]
+    if not sized:
+        return []
+
+    return [coded("warning", "short_period_invest", components=[reference(c) for c in sized], n=len(sized))]

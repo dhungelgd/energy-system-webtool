@@ -242,8 +242,8 @@ def run_case(name):
 
 def test_the_tour_covers_every_message_of_the_system_check():
     codes = {key.split(".")[1] for key in EN if key.startswith("check.")}
-    codes -= {"profile_shares", "capacity_factor", "value_missing",
-              "unbounded_plant"}  # the data checks have their own tests
+    codes -= {"profile_shares", "capacity_factor", "value_missing", "unbounded_plant",
+              "short_period_invest"}  # the data checks have their own tests
 
     assert codes == set(CASES)
 

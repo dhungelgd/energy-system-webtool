@@ -5,7 +5,15 @@ import pytest
 from backend.results import KeyFigure, ScenarioResult, SolverInfo, Table
 from backend.i18n import Msg, Translator
 from backend.service import ScenarioError
-from frontend_nicegui.result_view import format_elapsed, format_value, headline_cards, run_failure, solver_label, solver_text
+from frontend_nicegui.result_view import (
+    format_elapsed,
+    format_value,
+    headline_cards,
+    period_caption,
+    run_failure,
+    solver_label,
+    solver_text,
+)
 
 
 def result(solver=None, figures=()):
@@ -186,3 +194,52 @@ def test_each_reason_has_a_sentence_in_both_languages_and_says_what_to_do():
 
 def test_a_reason_that_is_unknown_to_the_page_does_not_break_it():
     assert run_failure(Exception("not a ScenarioError")) == Msg("run.failed", reason="not a ScenarioError")
+
+
+# ---------------------------------------------------------------------------
+# the words of the headline figures, and the note for a period shorter than a year
+# ---------------------------------------------------------------------------
+
+def figure_result(label, helptext, horizon=8760.0):
+    return ScenarioResult(
+        objective=1.0, horizon_hours=horizon,
+        key_figures=[KeyFigure(label=label, value=1234.5, unit="€", help=helptext)],
+        cost_breakdown=Table(columns=[]), capacities=Table(columns=[]),
+    )
+
+
+def test_the_label_and_the_help_of_a_headline_figure_are_translated():
+    shown = figure_result("Grid import", "Electricity bought from the grid.")
+
+    assert headline_cards(shown) == [{"label": "Grid import", "value": "1,234 €", "help": "Electricity bought from the grid."}]
+    assert headline_cards(shown, DE) == [
+        {"label": "Netzbezug", "value": "1.234 €", "help": "Strom, der aus dem Netz bezogen wird."}]
+
+
+def test_a_label_that_is_not_in_the_table_is_shown_as_it_is():
+    assert headline_cards(figure_result("Something new", "Some help."), DE)[0]["label"] == "Something new"
+
+
+def test_the_label_of_the_system_cost_depends_on_the_length_of_the_period_in_both_languages():
+    assert headline_cards(figure_result("Annual system cost", ""), DE)[0]["label"] == "Jährliche Systemkosten"
+    assert headline_cards(figure_result("System cost (simulated period)", ""), DE)[0]["label"] == "Systemkosten (simulierter Zeitraum)"
+
+
+@pytest.mark.parametrize("hours, english, german", [
+    (24, "The simulated period is 1 day.", "Der simulierte Zeitraum beträgt 1 Tag."),
+    (168, "The simulated period is 7 days.", "Der simulierte Zeitraum beträgt 7 Tage."),
+    (8699, "The simulated period is 362 days.", "Der simulierte Zeitraum beträgt 362 Tage."),
+    (6, "The simulated period is 1 day.", "Der simulierte Zeitraum beträgt 1 Tag."),            # never "0 days"
+])
+def test_a_period_shorter_than_a_year_gets_a_note_with_the_days(hours, english, german):
+    shown = figure_result("Grid import", "", horizon=float(hours))
+
+    assert period_caption(shown).startswith(english)
+    assert period_caption(shown, DE).startswith(german)
+    assert "so the system cost is not an annual figure." in period_caption(shown)
+    assert "die Systemkosten sind also keine Jahreszahl." in period_caption(shown, DE)
+
+
+@pytest.mark.parametrize("hours", [8700.0, 8760.0, 8784.0])
+def test_a_whole_year_has_no_note(hours):
+    assert period_caption(figure_result("Grid import", "", horizon=hours)) is None

@@ -16,7 +16,7 @@ This module does not use Streamlit or NiceGUI, so any frontend can use it.
 from backend import service
 from backend.component_specs import INFO
 from backend.findings import Finding
-from backend.scenario_checks import check_data, check_required, check_unbounded
+from backend.scenario_checks import check_data, check_period, check_required, check_unbounded
 from backend.scenario_convert import engine_gaps, scenario_to_v1
 from backend.service import ScenarioNotReady
 
@@ -40,6 +40,7 @@ def check(scenario, labels=None):
     findings.extend(check_required(scenario))
     findings.extend(check_unbounded(scenario))
     findings.extend(check_data(scenario))
+    findings.extend(check_period(scenario))
 
     if not gaps:
         findings.extend(service.check(scenario_to_v1(scenario), labels=names))

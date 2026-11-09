@@ -33,7 +33,15 @@ from frontend_nicegui.forms import has_form
 from frontend_nicegui.markers import slug
 from frontend_nicegui.names import component_label, fix_label, group_label, template_label
 from frontend_nicegui.page_state import PageState
-from frontend_nicegui.result_view import format_elapsed, headline_cards, run_failure, solver_label, solver_text
+from frontend_nicegui.result_tabs import render_result_tabs
+from frontend_nicegui.result_view import (
+    format_elapsed,
+    headline_cards,
+    period_caption,
+    run_failure,
+    solver_label,
+    solver_text,
+)
 from frontend_nicegui.scenario_view import component_rows, describe_period, series_rows
 
 TITLE = "Energy System Web Tool"
@@ -100,8 +108,11 @@ def is_valid(parse, value):
     return True
 
 
-def show_result(result, tr):
-    """The headline figures of a result."""
+def show_result(result, tr, key="file"):
+    """A result: the headline figures, the note for a period shorter than a year, the solver, and the tabs.
+
+    `key` ('draft' or 'file') makes the markers of two results on a page different.
+    """
 
     ui.label(tr("result.heading")).classes("text-xl font-semibold")
 
@@ -113,7 +124,13 @@ def show_result(result, tr):
                 if card["help"]:
                     ui.tooltip(card["help"]).classes("text-body2")
 
+    caption = period_caption(result, tr)
+    if caption is not None:
+        ui.label(caption).classes("text-grey text-sm").mark(f"{key}-period-note")
+
     ui.label(solver_text(result, tr)).classes("text-grey").mark("solver")
+
+    render_result_tabs(result, tr, key)
 
 
 def show_findings(findings, tr, title_key="findings.title", marker="findings", on_fix=None):
@@ -162,6 +179,7 @@ def home_page():
     request = ui.context.client.request
     state = PageState(choose_language(request.query_params.get("lang"), request.headers.get("accept-language")))
     boxes = {}                      # the checkboxes of the page that is drawn now
+    shown = {"results": None}       # what the block of the results of the draft shows now (see sync_results)
 
     # ----- the language ----------------------------------------------------
 
@@ -250,6 +268,7 @@ def home_page():
 
         if len(draft) == 0:
             ui.label(tr("builder.empty")).classes("text-grey").mark("selection-empty")
+            sync_results()
             return
 
         scenario = draft.scenario(tr("scenario.default_name"))
@@ -263,6 +282,7 @@ def home_page():
         findings = service_v2.check(scenario)
         show_findings(findings, tr, "findings.title_draft", "draft-findings", on_fix=add_components)
         draft_run_panel(can_run=not any(f.level == "error" for f in findings))
+        sync_results()
 
     def running_clock(running, marker):
         """'Running the optimization... 1:12' next to the spinner, counting up while the run goes on."""
@@ -277,29 +297,43 @@ def home_page():
             ui.timer(1.0, lambda: label.set_text(text()))
 
     def draft_run_panel(can_run):
-        """The card to run the scenario that is being built (only when the check finds no errors), and what came
-        out of the last run. A result belongs to the scenario as it was run: if the draft was changed since,
-        it stays but says so."""
+        """The card to run the scenario that is being built (only when the check finds no errors)."""
 
         tr = state.tr
 
-        if can_run:
-            with ui.card().classes("w-full"):
-                ui.label(tr("run.heading")).classes("text-xl font-semibold")
-                ui.label(tr("run.intro"))
-
-                with ui.row().classes("items-center gap-4"):
-                    button = ui.button(tr("run.button"), icon="play_arrow", on_click=start_draft).mark("draft-run")
-                    button.set_enabled(not state.running)
-                    spinner = ui.spinner(size="lg")
-                    spinner.visible = state.running_draft
-                    running_clock(state.running_draft, "draft-clock")
-
-        run = state.draft_run
-        if run is None:
+        if not can_run:
             return
 
-        changed = state.draft_changed_since_run()
+        with ui.card().classes("w-full"):
+            ui.label(tr("run.heading")).classes("text-xl font-semibold")
+            ui.label(tr("run.intro"))
+
+            with ui.row().classes("items-center gap-4"):
+                button = ui.button(tr("run.button"), icon="play_arrow", on_click=start_draft).mark("draft-run")
+                button.set_enabled(not state.running)
+                spinner = ui.spinner(size="lg")
+                spinner.visible = state.running_draft
+                running_clock(state.running_draft, "draft-clock")
+
+    def results_wanted():
+        """What the block of the results should show: is there a draft, and was it changed since the run."""
+
+        return len(state.draft) > 0, state.draft_changed_since_run()
+
+    @ui.refreshable
+    def draft_results():
+        """What came out of the last run of the draft, below its card. A result belongs to the scenario as it
+        was run: if the draft was changed since, it stays but says so. This block is drawn on its own, so that a
+        change in a form does not send the charts to the browser again."""
+
+        tr = state.tr
+        shown["results"] = wanted = results_wanted()
+        run = state.draft_run
+
+        if run is None or not wanted[0]:
+            return
+
+        changed = wanted[1]
 
         with ui.column().classes("w-full gap-4").mark("draft-results"):
             if run.error is not None:
@@ -310,7 +344,13 @@ def home_page():
                     with ui.row().classes("items-start gap-2 no-wrap"):
                         ui.icon("warning", color="warning")
                         ui.label(tr("run.outdated")).mark("draft-outdated")
-                show_result(run.result, tr)
+                show_result(run.result, tr, "draft")
+
+    def sync_results():
+        """Draw the results again only if what they show has changed (the draft was changed since the run)."""
+
+        if results_wanted() != shown["results"]:
+            draft_results.refresh()
 
     async def start_draft():
         started = state.start_draft_run(tr_default_name())
@@ -320,6 +360,7 @@ def home_page():
         if state.language_toggle is not None:
             state.language_toggle.disable()
         overview.refresh()
+        draft_results.refresh()         # the result of the run before is gone
         run_panel.refresh()             # one run at a time: the button of the opened file is blocked too
 
         result, failure = await execute(started.scenario)
@@ -329,6 +370,7 @@ def home_page():
         if state.language_toggle is not None and not state.language_toggle.is_deleted:
             state.language_toggle.enable()
         overview.refresh()
+        draft_results.refresh()
         run_panel.refresh()
 
     def tr_default_name():
@@ -368,7 +410,7 @@ def home_page():
     def clear_selection():
         state.draft.clear()
         state.draft_run = None          # whoever starts again does not want the result of the old system
-        show_selection_in_boxes()
+        show_selection_in_boxes()      # (the empty overview draws the results again: they are gone with the run)
 
     def builder_card():
         tr, draft = state.tr, state.draft
@@ -512,6 +554,7 @@ def home_page():
             scenario_card()
             builder_card()
             overview()                  # the check is above the settings: a new card appears below it
+            draft_results()
             settings()
             open_card()
             details()

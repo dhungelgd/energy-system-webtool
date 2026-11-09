@@ -35,3 +35,18 @@ def solve(selected, tech_inputs, input_data):
     )
     _, results, meta, _ = run_scenario(config, input_data, selected_techs=selected)
     return results, meta, config
+
+
+def scenario_without_findings():
+    """The bytes of a scenario file that the check has nothing to say about: the example without its PV system
+    (a demand and the grid, for a day). The example itself is a day with an investment and so has the warning for
+    a short period."""
+
+    from backend.scenario_v2 import ScenarioV2
+    from examples.make_examples_v2 import EXAMPLES
+
+    values = EXAMPLES["pv_and_grid"]().model_dump()
+    values["components"] = [c for c in values["components"] if c["id"] != "pv"]
+    values["series"] = {k: v for k, v in values["series"].items() if k != "pv_profile"}
+
+    return ScenarioV2(**values).model_dump_json().encode()
