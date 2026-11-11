@@ -18,6 +18,21 @@ from backend.findings import finding_text
 from backend.i18n import LANGUAGES, Msg, choose_language
 from backend.service import ScenarioError
 from backend.system_templates import SYSTEM_TEMPLATES, components_by_group
+from frontend_nicegui.board import (
+    BOARD,
+    COLUMN_TEXTS,
+    COLUMNS,
+    LANE_COLORS,
+    LANES,
+    STYLE,
+    addable,
+    finding_keys,
+    findings_by_component,
+    problem_texts,
+    tile_detail,
+    tile_problem_text,
+    tile_state,
+)
 from frontend_nicegui.calendar import locale_prop
 from frontend_nicegui.draft import (
     MAX_NAME_LENGTH,
@@ -31,9 +46,10 @@ from frontend_nicegui.draft import (
 from frontend_nicegui.form_view import TYPING_DELAY_MS, render_component_form
 from frontend_nicegui.forms import has_form
 from frontend_nicegui.markers import slug
-from frontend_nicegui.names import component_label, fix_label, group_label, template_label
+from frontend_nicegui.names import component_label, display_name, fix_label, group_label, template_label
 from frontend_nicegui.page_state import PageState
 from frontend_nicegui.result_tabs import render_result_tabs
+from frontend_nicegui.result_terms import bus_label
 from frontend_nicegui.result_view import (
     format_elapsed,
     headline_cards,
@@ -46,6 +62,9 @@ from frontend_nicegui.scenario_view import component_rows, describe_period, seri
 from frontend_nicegui.status import COLORS, ICONS, badge_of, draft_status, run_hint, status_text
 
 TITLE = "Energy System Web Tool"
+
+NO_COMPONENT = "none"               # the panel of the drawer when no component is open
+STATE_ICONS = {"ok": ("check_circle", "positive"), "warning": ("warning", "warning"), "error": ("error", "negative")}
 
 logger = logging.getLogger(__name__)
 
@@ -134,11 +153,13 @@ def show_result(result, tr, key="file"):
     render_result_tabs(result, tr, key)
 
 
-def show_findings(findings, tr, title_key="findings.title", marker="findings", on_fix=None):
+def show_findings(findings, tr, title_key="findings.title", marker="findings", on_fix=None, on_goto=None, names=None):
     """The result of the system check: errors, warnings, or 'ready'.
 
     With `on_fix`, a finding that proposes a repair gets a button for each: `on_fix(keys)` is called with
-    the components that it adds. A scenario that was opened from a file cannot be changed, so it gets none.
+    the components that it adds. With `on_goto`, a finding about a component gets a button that opens it:
+    `on_goto(key)`; `names` maps the name of a component to its key. A scenario that was opened from a file
+    cannot be changed, so it gets none of them.
     """
 
     errors = [f for f in findings if f.level == "error"]
@@ -166,6 +187,17 @@ def show_findings(findings, tr, title_key="findings.title", marker="findings", o
                                 fix_label(tr, keys), icon="add", on_click=lambda _, k=keys: on_fix(k),
                             ).props("outline dense no-caps").mark(f"fix-{index}-{option}")
 
+        if on_goto is not None:
+            for index, finding in enumerate(findings):
+                keys = sorted(finding_keys(finding, names or {}))
+                if keys:
+                    with ui.row().classes("gap-2 ml-8"):
+                        for key in keys:
+                            ui.button(
+                                tr("findings.goto", name=component_label(tr, key)), icon="arrow_forward",
+                                on_click=lambda _, k=key: on_goto(k),
+                            ).props("flat dense no-caps").mark(f"goto-{index}-{key}")
+
         if on_fix is not None and any(finding.fixes for finding in findings):
             ui.label(tr("findings.fix_note")).classes("text-grey text-sm").mark("fix-note")
 
@@ -181,7 +213,8 @@ def home_page():
     state = PageState(choose_language(request.query_params.get("lang"), request.headers.get("accept-language")))
     boxes = {}                      # the checkboxes of the page that is drawn now
     shown = {"results": None}       # what the block of the results of the draft shows now (see sync_results)
-    chrome = {"findings": (0, 0), "tabs": None, "badge": None}   # what the top bar and the tabs show (see update_chrome)
+    chrome = {"findings": (0, 0), "list": [], "tabs": None, "badge": None, "panels": None, "sheet": None}
+    # what the top bar, the tabs, the board and the drawer show of the check (see update_chrome)
 
     # ----- the language ----------------------------------------------------
 
@@ -190,6 +223,7 @@ def home_page():
             return                  # the switch is blocked during a run; a run belongs to one page
         state.language = event.value
         content.refresh()
+        settings.refresh()          # the side sheet is not part of the content
         header_left.refresh()
         header_status.refresh()
         header_lang.refresh()
@@ -281,7 +315,10 @@ def home_page():
                 "dense flat").classes("w-full").mark("draft-components")
 
         findings = service_v2.check(scenario)
-        show_findings(findings, tr, "findings.title_draft", "draft-findings", on_fix=add_components)
+        show_findings(
+            findings, tr, "findings.title_draft", "draft-findings", on_fix=add_components, on_goto=goto,
+            names={component.name: component.template for component in draft.components()},
+        )
         update_chrome(findings)
         sync_results()
 
@@ -317,7 +354,10 @@ def home_page():
 
         errors = sum(1 for finding in findings if finding.level == "error")
         chrome["findings"] = (errors, len(findings) - errors)
+        chrome["list"] = list(findings)
         header_status.refresh()
+        board.refresh()
+        component_problems.refresh()
 
         badge = chrome["badge"]
         if badge is not None and not badge.is_deleted:
@@ -439,12 +479,162 @@ def home_page():
     def tr_default_name():
         return state.tr("scenario.default_name")
 
+    # ----- the board and the drawer ------------------------------------------
+
+    def select(key):
+        """Open a component in the side sheet (None closes it)."""
+
+        state.selected = key
+        panels = chrome["panels"]
+        if panels is not None and not panels.is_deleted:
+            panels.set_value(key or NO_COMPONENT)
+        sheet = chrome["sheet"]
+        if sheet is not None and not sheet.is_deleted:
+            sheet.set_value(key is not None)
+        board.refresh()
+
+    def sheet_changed(event):
+        """The visitor closed the side sheet (a click outside it on a small screen): no component is open now."""
+
+        if not event.value and state.selected is not None:
+            select(None)
+
+    def goto(key):
+        """From a finding of the check to the settings of its component."""
+
+        select(key)
+        show_view("system")
+
+    def add_component(key):
+        state.draft.set(key, True)
+        state.selected = key                # a new component is opened to be set up
+        show_selection_in_boxes()
+
+    def remove_component(key):
+        state.draft.set(key, False)         # (settings() closes the drawer when its component is gone)
+        show_selection_in_boxes()
+
+    def draw_tile(component, found):
+        tr = state.tr
+        key = component.template
+        icon, color, tint = STYLE[key]
+        tile_kind = tile_state(found)
+        problem = tile_problem_text(found, tr)
+        symbol, symbol_color = STATE_ICONS[tile_kind]
+
+        with ui.card().tight().props(f"flat bordered data-state={tile_kind}").classes(
+                "w-full cursor-pointer q-pa-sm gap-1").style(
+                "outline: 2px solid #0B6E6E" if key == state.selected else "") as card:
+            with ui.row().classes("items-center no-wrap w-full gap-2"):
+                with ui.element("div").style(
+                        f"background:{tint};border-radius:8px;width:28px;height:28px;flex:none;display:flex;"
+                        "align-items:center;justify-content:center"):
+                    ui.icon(icon).style(f"color:{color};font-size:18px")
+                ui.label(display_name(component, tr)).classes("font-semibold flex-grow")
+                ui.icon(symbol, color=symbol_color).props("size=18px")
+            ui.label(tile_detail(component, tr)).classes("text-grey text-sm")
+            if problem:
+                ui.label(problem).classes("text-xs " + ("text-negative" if tile_kind == "error" else "text-warning"))
+                ui.tooltip("\n".join(text for _, text in problem_texts(found, tr))).style("white-space: pre-line")
+        card.on("click", lambda _, k=key: select(k)).mark(f"tile-{key}")
+
+    def draw_add_button(lane, column, keys):
+        tr = state.tr
+
+        with ui.button(tr("board.add"), icon="add").props("outline no-caps dense").classes("w-full text-grey-8").mark(
+                f"add-{lane}-{column}"):
+            with ui.menu():
+                for key in keys:
+                    ui.menu_item(component_label(tr, key), on_click=lambda _, k=key: add_component(k)).mark(f"add-{key}")
+
+    @ui.refreshable
+    def board():
+        """The lanes (electricity, heat, gas) with a tile for each component and an Add button where more fits."""
+
+        tr = state.tr
+        components = state.draft.components()
+        by_key = {component.template: component for component in components}
+        problems = findings_by_component(chrome["list"], components)
+        columns = "84px repeat(4, minmax(0, 1fr))"
+
+        ui.label(tr("board.title")).classes("text-xl font-semibold")
+        ui.label(tr("board.hint")).classes("text-grey")
+
+        with ui.element("div").classes("w-full overflow-x-auto"):
+            with ui.column().classes("gap-3").style("min-width: 760px"):
+                with ui.grid(columns=columns).classes("w-full gap-4 q-px-md"):
+                    ui.label()
+                    for column in COLUMNS:
+                        ui.label(tr(COLUMN_TEXTS[column])).classes("text-xs font-semibold text-grey").style(
+                            "text-transform: uppercase").mark(f"column-{column}")
+
+                for lane in LANES:
+                    with ui.card().props("flat bordered").classes("w-full").mark(f"lane-{lane}"):
+                        with ui.grid(columns=columns).classes("w-full gap-4 items-start"):
+                            with ui.row().classes("items-center no-wrap gap-2 q-pt-xs"):
+                                ui.element("span").style(
+                                    f"width:10px;height:10px;border-radius:50%;background:{LANE_COLORS[lane]}")
+                                ui.label(bus_label(tr, lane)).classes("font-semibold")
+                            for column in COLUMNS:
+                                with ui.column().classes("w-full gap-2"):
+                                    for key in BOARD[lane][column]:
+                                        if key in by_key:
+                                            draw_tile(by_key[key], problems[key])
+                                    free = addable(lane, column, by_key)
+                                    if free:
+                                        draw_add_button(lane, column, free)
+
+    @ui.refreshable
+    def component_problems(key):
+        """What the check says about one component, at the top of its settings."""
+
+        tr = state.tr
+        found = findings_by_component(chrome["list"], state.draft.components()).get(key, [])
+        if not found:
+            return
+
+        with ui.card().props("flat bordered").classes("w-full gap-1").mark(f"problems-{key}"):
+            ui.label(tr("drawer.problems")).classes("font-semibold")
+            for level, text in problem_texts(found, tr):
+                symbol, symbol_color = ("error", "negative") if level == "error" else ("warning", "warning")
+                with ui.row().classes("items-start gap-2 no-wrap"):
+                    ui.icon(symbol, color=symbol_color)
+                    ui.label(text)
+
     @ui.refreshable
     def settings():
+        """The side sheet: the settings of the component that is open. Every component has its panel, and the browser
+        shows only the one that is open (the others stay in the page, so that nothing typed is lost). The sheet is
+        at the edge of the window with a height of its own, so a long form scrolls in it and not in the page."""
+
+        tr = state.tr
         state.drop_stale_uploads()
-        for component in state.draft.components():
-            if has_form(component):
-                render_component_form(component, state.tr, on_change=overview.refresh, state=state)
+        components = state.draft.components()
+        if state.selected not in {component.template for component in components}:
+            state.selected = None
+
+        with ui.tab_panels(value=state.selected or NO_COMPONENT).classes("w-full bg-transparent").mark("drawer") as panels:
+            with ui.tab_panel(NO_COMPONENT).classes("q-pa-none").mark("drawer-empty"):
+                pass                                    # nothing is open: the side sheet is closed
+
+            for component in components:
+                if not has_form(component):
+                    continue
+                key = component.template
+                with ui.tab_panel(key).classes("q-pa-none gap-2").mark(f"drawer-{key}"):
+                    with ui.row().classes("w-full justify-end gap-2"):
+                        ui.button(
+                            tr("drawer.remove"), icon="delete_outline", on_click=lambda _, k=key: remove_component(k),
+                        ).props("flat dense no-caps color=negative").mark(f"drawer-remove-{key}")
+                        ui.button(icon="close", on_click=lambda: select(None)).props("flat round dense").mark(
+                            "drawer-close").tooltip(tr("common.close"))
+                    component_problems(key)
+                    render_component_form(component, tr, on_change=overview.refresh, state=state)
+        chrome["panels"] = panels
+
+        sheet = chrome["sheet"]
+        if sheet is not None and not sheet.is_deleted:
+            sheet.set_value(state.selected is not None)         # open while a component is open
 
     def show_selection_in_boxes():
         for key, box in boxes.items():
@@ -468,10 +658,10 @@ def home_page():
 
     def use_template(name):
         state.draft.apply_template(name)
-        show_selection_in_boxes()
+        show_selection_in_boxes()           # the board shows what is missing; a click on a tile opens a component
 
     def clear_selection():
-        state.draft.clear()
+        state.draft.clear()                 # (settings() closes the drawer: its component is gone)
         state.draft_run = None          # whoever starts again does not want the result of the old system
         show_selection_in_boxes()      # (the empty overview draws the results again: they are gone with the run)
 
@@ -479,10 +669,10 @@ def home_page():
         tr, draft = state.tr, state.draft
         boxes.clear()
 
-        with ui.card().classes("w-full"):
-            ui.label(tr("builder.heading")).classes("text-xl font-semibold")
+        # open while nothing is chosen; the board is the way to add and open components after that
+        with ui.expansion(tr("builder.heading"), icon="tune", value=len(draft) == 0).props("dense").classes(
+                "w-full bg-white rounded-borders").style("border: 1px solid #DDE3EA").mark("builder"):
             ui.label(tr("builder.intro"))
-            ui.label(tr("builder.wip")).classes("text-grey text-sm")
 
             with ui.row().classes("w-full gap-2"):
                 for name in SYSTEM_TEMPLATES:
@@ -601,13 +791,17 @@ def home_page():
     # ----- the page --------------------------------------------------------
 
     def system_view():
-        """Everything that describes the system: the period, the components, their settings, a file to open."""
+        """Everything that describes the system: the period, the board of components, a file to open. (The settings
+        of the component that is open are in the side sheet.)"""
 
         ui.label(state.tr("app.subtitle")).classes("text-grey")
 
         scenario_card()
         builder_card()
-        settings()
+
+        with ui.column().classes("w-full gap-3"):
+            board()
+
         open_card()
         details()
 
@@ -615,7 +809,7 @@ def home_page():
     def content():
         tr = state.tr
 
-        with ui.column().classes("w-full max-w-6xl mx-auto p-6 gap-4"):
+        with ui.column().classes("w-full max-w-7xl mx-auto p-6 gap-4"):
             with ui.tabs(value=state.view, on_change=lambda event: setattr(state, "view", event.value)).classes(
                     "w-full").mark("views") as tabs:
                 ui.tab("system", tr("view.system")).mark("view-system")
@@ -638,6 +832,14 @@ def home_page():
         ui.space()
         header_status()
         header_lang()
+
+    # the side sheet on the right: closed until a component is open. On a window wider than 1500 px it makes room
+    # for itself (the page gets narrower); on a narrower one it lies over the page, and a click outside closes it
+    with ui.right_drawer(value=False, fixed=True, bordered=True).props("width=460 breakpoint=1500").classes("q-pa-md").mark(
+            "drawer-sheet") as sheet:
+        chrome["sheet"] = sheet
+        settings()
+    sheet.on_value_change(sheet_changed)
 
     content()
 

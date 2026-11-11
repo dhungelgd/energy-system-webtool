@@ -401,12 +401,6 @@ async def test_the_table_and_the_check_follow_the_form_in_german(user: User):
     assert (await pv_row(user))["size"] == "50 kW"
 
 
-async def test_the_page_says_which_forms_there_are_so_far(user: User):
-    await open_page(user)
-
-    await user.should_see("every component has its settings form")
-
-
 async def test_the_unit_of_the_number_field_is_an_input_suffix_not_a_separate_text(user: User):
     await open_page(user)
     await choose_template(user, "PV system")

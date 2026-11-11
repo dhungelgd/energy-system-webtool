@@ -131,18 +131,18 @@ def position(user: User, marker: str):
     return list(user.client.content.descendants()).index(field(user, marker))
 
 
-async def test_the_views_come_in_the_order_system_check_results_and_a_new_settings_card_joins_the_system_view(user: User):
+async def test_the_views_come_in_the_order_system_check_results_and_a_repair_adds_a_tile_to_the_board(user: User):
     await start_with(user, "demand", "pv")
 
-    # the system view: the builder, then the settings of each component, and the file to open at the end ...
-    assert position(user, "component-pv") < position(user, "form-demand") < position(user, "form-pv")
-    assert position(user, "form-pv") < position(user, "upload")
+    # the system view: the builder, then the board, and the file to open at the end ...
+    assert position(user, "component-pv") < position(user, "lane-electricity") < position(user, "upload")
     # ... then the check, then the results
     assert position(user, "upload") < position(user, "draft-findings") < position(user, "draft-results-empty")
+    assert not exists(user, "tile-grid")
 
     await press(user, "Add Electricity grid")
 
-    assert position(user, "component-pv") < position(user, "form-grid") < position(user, "upload")   # in the system view
+    assert exists(user, "tile-grid") and exists(user, "form-grid")          # a tile on the board, a form in the side sheet
 
 # ---------------------------------------------------------------------------
 # what a repair leaves alone

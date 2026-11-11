@@ -55,6 +55,7 @@ class PageState:
         self.draft_run = None         # a DraftRun: the last run of the scenario that is being built
         self.language_toggle = None   # the page puts its language switch here, to block it during a run
         self.view = "system"          # the view that is shown: "system", "check" or "results"
+        self.selected = None          # the component that is open in the drawer (its key), or None
         self.language = language
 
     # ----- the language ----------------------------------------------------

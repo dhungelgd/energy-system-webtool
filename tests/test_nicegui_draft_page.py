@@ -247,13 +247,6 @@ async def test_clearing_the_selection_removes_the_check(user: User):
     await user.should_see("Nothing selected yet")
 
 
-async def test_the_page_says_that_the_forms_and_the_upload_are_not_there_yet(user: User):
-    await user.open("/")
-
-    await user.should_see("Work in progress")
-    await user.should_see("open a complete scenario file further down")
-
-
 async def test_the_check_of_the_draft_and_of_an_opened_file_do_not_get_mixed_up(user: User):
     from nicegui.elements.upload_files import SmallFileUpload
 

@@ -202,8 +202,7 @@ async def test_the_headline_figures_are_shown_in_the_results_view(user: User, mo
     await user.should_see("Solver: optimal in 1.5 s")
     assert len(user.find(marker="headline").elements) == 2
     results = list(user.client.content.descendants())
-    assert results.index(field(user, "form-demand")) < results.index(field(user, "draft-findings")) \
-        < results.index(field(user, "draft-results"))                    # the views: System, Check, Results
+    assert results.index(field(user, "draft-findings")) < results.index(field(user, "draft-results"))  # Check, Results
     assert not exists(user, "draft-outdated")
 
 
