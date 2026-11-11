@@ -382,3 +382,78 @@ async def test_a_real_result_has_the_numbers_of_the_run(user: User):
     assert table_cells(user, "draft-supply-electricity")[0][:2] == ["Grid import", "240"]
     await user.should_see("No components with a capacity in this system.")
     await user.should_see("The simulated period is 1 day.")
+
+
+# ---------------------------------------------------------------------------
+# the optimised system: what the model chose to build
+# ---------------------------------------------------------------------------
+
+def headline_cards_in_order(user):
+    """The headline cards as they stand on the page (a set of elements has no order of its own)."""
+
+    order = list(user.client.content.descendants())
+
+    return sorted(user.find(marker="headline").elements, key=order.index)
+
+
+def chosen_texts(user, key, number):
+    with user.client:
+        return [e.text for e in field(user, f"{key}-chosen-{number}").descendants() if isinstance(e, ui.label)]
+
+
+async def test_the_optimised_system_shows_what_the_model_built_and_what_it_left_out(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    await user.should_see("The optimised system")
+    assert chosen_texts(user, "draft", 0) == ["Heating rod", "2,471 kW (heat)", "19,080 € per year"]
+    assert not exists(user, "draft-chosen-1")                              # the PV system has a fixed size: no choice
+    assert field(user, "draft-not-built").text == "Not built: Battery"
+
+
+async def test_the_optimised_system_is_in_german(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result(), language="de")
+
+    await user.should_see("Das optimierte System")
+    assert chosen_texts(user, "draft", 0) == ["Heizstab", "2.471 kW (Wärme)", "19.080 € pro Jahr"]
+    assert field(user, "draft-not-built").text == "Nicht gebaut: Batteriespeicher"
+
+
+async def test_when_every_size_is_fixed_the_optimised_system_says_so(user: User, monkeypatch):
+    result = rich_result()
+    result.capacities.rows = [["PV", "fixed (input)", 5.0, "kW", 0.0]]
+
+    await show(user, monkeypatch, result)
+
+    assert field(user, "draft-chosen-none").text == "All sizes were fixed by you, so the model chose none."
+    assert not exists(user, "draft-not-built") and not exists(user, "draft-chosen-0")
+
+
+async def test_the_optimised_system_comes_first_then_the_figures_then_the_tabs(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    order = list(user.client.content.descendants())
+    first_figure = headline_cards_in_order(user)[0]
+
+    assert order.index(field(user, "draft-chosen")) < order.index(first_figure) < order.index(field(user, "draft-tab-costs"))
+
+
+async def test_the_first_figure_is_marked_and_the_others_are_not(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    cards = headline_cards_in_order(user)
+
+    assert len(cards) == 2 and cards[0].style.get("background") and not cards[1].style.get("background")
+
+
+async def test_the_result_of_an_opened_file_has_the_optimised_system_too(user: User, monkeypatch):
+    async def solver(scenario):
+        return rich_result()
+
+    use_solver(monkeypatch, solver)
+    await user.open("/")
+    await open_example(user, "pv_and_grid")
+    user.find(marker="run").click()
+
+    await user.should_see(marker="file-chosen")
+
+    assert chosen_texts(user, "file", 0)[0] == "Heating rod"

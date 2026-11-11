@@ -6,6 +6,7 @@ from backend.results import KeyFigure, ScenarioResult, SolverInfo, Table
 from backend.i18n import Msg, Translator
 from backend.service import ScenarioError
 from frontend_nicegui.result_view import (
+    chosen_sizes,
     format_elapsed,
     format_value,
     headline_cards,
@@ -243,3 +244,116 @@ def test_a_period_shorter_than_a_year_gets_a_note_with_the_days(hours, english, 
 @pytest.mark.parametrize("hours", [8700.0, 8760.0, 8784.0])
 def test_a_whole_year_has_no_note(hours):
     assert period_caption(figure_result("Grid import", "", horizon=hours)) is None
+
+
+# ---------------------------------------------------------------------------
+# the optimised system: what the model chose to build
+# ---------------------------------------------------------------------------
+
+CAPACITY_COLUMNS = ["Component", "Mode", "Capacity", "Unit", "Annualised cost (€/a)"]
+
+
+def sized(rows, columns=CAPACITY_COLUMNS):
+    return ScenarioResult(
+        objective=1.0, horizon_hours=8760.0,
+        key_figures=[KeyFigure(label="Annual system cost", value=12556.4, unit="€", help="")],
+        solver=SolverInfo(status="ok", termination="optimal", seconds=79.2, name="highs"),
+        cost_breakdown=Table(columns=[]), capacities=Table(columns=list(columns), rows=rows),
+    )
+
+
+ROWS = [
+    ["PV", "optimized", 38.0, "kW", 3531.0],
+    ["Heat pump", "optimized", 18.04, "kW (heat)", 1394.4],
+    ["Battery", "optimized", 0.0, "kWh", 0.0],
+    ["Heat storage", "optimized", 8.0, "kWh", 25.0],
+    ["Wind turbine", "optimized", 0.0, "kW", 0.0],
+    ["Gas boiler", "fixed (input)", 9.0, "kW (heat)", 0.0],
+]
+
+
+def test_what_the_model_built_is_listed_with_size_and_cost_and_the_most_expensive_first():
+    chosen = chosen_sizes(sized(ROWS))
+
+    assert chosen["any"] is True
+    assert [(c["name"], c["size"], c["cost"]) for c in chosen["built"]] == [
+        ("PV", "38 kW", "3,531 € per year"),
+        ("Heat pump", "18 kW (heat)", "1,394 € per year"),
+        ("Heat storage", "8 kWh", "25 € per year"),
+    ]
+
+
+def test_the_most_expensive_comes_first_whatever_the_order_of_the_table():
+    chosen = chosen_sizes(sized([
+        ["Heat storage", "optimized", 8.0, "kWh", 25.0], ["PV", "optimized", 38.0, "kW", 3531.0],
+        ["Heat pump", "optimized", 18.0, "kW (heat)", 1394.4],
+    ]))
+
+    assert [c["name"] for c in chosen["built"]] == ["PV", "Heat pump", "Heat storage"]
+
+
+def test_what_the_model_left_out_is_listed_by_name_and_a_fixed_size_is_not_a_choice():
+    chosen = chosen_sizes(sized(ROWS))
+
+    assert chosen["not_built"] == ["Battery", "Wind turbine"]
+    assert "Gas boiler" not in [c["name"] for c in chosen["built"]] + chosen["not_built"]
+
+
+def test_a_size_with_decimals_keeps_one_and_a_whole_size_has_none():
+    chosen = chosen_sizes(sized([["PV", "optimized", 38.46, "kW", 100.0], ["Wind turbine", "optimized", 12.0, "kW", 50.0]]))
+
+    assert [c["size"] for c in chosen["built"]] == ["38.5 kW", "12 kW"]
+
+
+def test_the_words_and_numbers_are_in_the_language_of_the_reader():
+    chosen = chosen_sizes(sized(ROWS), DE)
+
+    assert [(c["name"], c["size"], c["cost"]) for c in chosen["built"]] == [
+        ("PV-Anlage", "38 kW", "3.531 € pro Jahr"),
+        ("Wärmepumpe", "18 kW (Wärme)", "1.394 € pro Jahr"),
+        ("Wärmespeicher", "8 kWh", "25 € pro Jahr"),
+    ]
+    assert chosen["not_built"] == ["Batteriespeicher", "Windkraftanlage"]
+
+
+def test_a_size_of_a_thousand_or_more_has_the_separator_of_the_language():
+    chosen = chosen_sizes(sized([["Heating rod", "optimized", 2471.04, "kW (heat)", 19080.3]]))
+
+    assert chosen["built"][0]["size"] == "2,471 kW (heat)"
+    assert chosen_sizes(sized([["Heating rod", "optimized", 2471.04, "kW (heat)", 19080.3]]), DE)["built"][0]["size"] == "2.471 kW (Wärme)"
+
+
+def test_each_built_component_has_the_colour_of_its_tile_and_an_unknown_one_is_grey():
+    from frontend_nicegui.board import STYLE
+
+    chosen = chosen_sizes(sized([["PV", "optimized", 1.0, "kW", 1.0], ["Something new", "optimized", 1.0, "kW", 0.5]]))
+
+    assert chosen["built"][0]["color"] == STYLE["pv"][1] and chosen["built"][1]["color"] == "#9AA5B1"
+
+
+def test_when_every_size_is_fixed_there_is_nothing_that_the_model_chose():
+    chosen = chosen_sizes(sized([["PV", "fixed (input)", 5.0, "kW", 0.0]]))
+
+    assert chosen == {"any": False, "built": [], "not_built": []}
+
+
+def test_when_the_model_built_nothing_it_still_says_what_it_could_have_built():
+    chosen = chosen_sizes(sized([["PV", "optimized", 0.0, "kW", 0.0], ["Battery", "optimized", 0.0, "kWh", 0.0]]))
+
+    assert chosen["any"] is True and chosen["built"] == [] and chosen["not_built"] == ["PV", "Battery"]
+
+
+@pytest.mark.parametrize("table", [
+    Table(columns=[]), Table(columns=["Component", "Mode"]), Table(columns=["Something", "Else"]),
+])
+def test_a_table_of_capacities_that_is_not_the_usual_one_gives_nothing(table):
+    result = sized([])
+    result.capacities = table
+
+    assert chosen_sizes(result) == {"any": False, "built": [], "not_built": []}
+
+
+def test_an_empty_cost_counts_as_zero():
+    chosen = chosen_sizes(sized([["PV", "optimized", 5.0, "kW", None]]))
+
+    assert chosen["built"][0]["cost"] == "0 € per year"

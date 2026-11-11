@@ -51,6 +51,7 @@ from frontend_nicegui.page_state import PageState
 from frontend_nicegui.result_tabs import render_result_tabs
 from frontend_nicegui.result_terms import bus_label
 from frontend_nicegui.result_view import (
+    chosen_sizes,
     format_elapsed,
     headline_cards,
     period_caption,
@@ -128,17 +129,50 @@ def is_valid(parse, value):
     return True
 
 
+def show_chosen(result, tr, key):
+    """The optimised system: the components whose size the model chose, with their size and yearly cost, and
+    what it left out (a size of zero is an answer too)."""
+
+    data = chosen_sizes(result, tr)
+
+    with ui.card().classes("w-full gap-3").mark(f"{key}-chosen"):
+        with ui.row().classes("items-baseline gap-3"):
+            ui.label(tr("result.chosen.title")).classes("text-xl font-semibold")
+            ui.label(tr("result.chosen.hint")).classes("text-grey text-sm")
+
+        if not data["any"]:
+            ui.label(tr("result.chosen.none")).classes("text-grey").mark(f"{key}-chosen-none")
+            return
+
+        if data["built"]:
+            with ui.row().classes("w-full gap-3"):
+                for number, item in enumerate(data["built"]):
+                    with ui.card().props("flat bordered").classes("flex-1 min-w-[12rem] gap-1").mark(
+                            f"{key}-chosen-{number}"):
+                        with ui.row().classes("items-center gap-2 no-wrap"):
+                            ui.element("span").style(
+                                f"width:12px;height:12px;border-radius:4px;background:{item['color']};flex:none")
+                            ui.label(item["name"]).classes("font-semibold")
+                        ui.label(item["size"]).classes("text-h6 text-weight-bold")
+                        ui.label(item["cost"]).classes("text-grey text-sm")
+
+        if data["not_built"]:
+            ui.label(tr("result.chosen.not_built", names=", ".join(data["not_built"]))).classes(
+                "text-grey text-sm").mark(f"{key}-not-built")
+
+
 def show_result(result, tr, key="file"):
-    """A result: the headline figures, the note for a period shorter than a year, the solver, and the tabs.
+    """A result: the optimised system, the headline figures, the note for a period shorter than a year, the
+    solver, and the tabs.
 
     `key` ('draft' or 'file') makes the markers of two results on a page different.
     """
 
-    ui.label(tr("result.heading")).classes("text-xl font-semibold")
+    show_chosen(result, tr, key)
 
     with ui.row().classes("w-full gap-4"):
-        for card in headline_cards(result, tr):
-            with ui.card().classes("min-w-[11rem]").mark("headline"):
+        for number, card in enumerate(headline_cards(result, tr)):
+            with ui.card().classes("min-w-[11rem]").style("background:#E6F2F2" if number == 0 else "").mark("headline"):
                 ui.label(card["label"]).classes("text-grey text-sm")
                 ui.label(card["value"]).classes("text-xl font-semibold")
                 if card["help"]:

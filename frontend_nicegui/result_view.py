@@ -7,9 +7,13 @@ English; result_terms.py translates them.
 """
 
 from backend.i18n import ENGLISH, Msg
+from backend.plotting import NODE_NAMES
+from frontend_nicegui.board import STYLE
 from frontend_nicegui.result_terms import term
 
 FULL_YEAR_HOURS = 8700          # from here on a run counts as a whole year (as in the key figures of the backend)
+BUILT = 1e-6                    # a size above this is built; below it the model chose to build nothing
+GREY = "#9AA5B1"                # the colour of a component that the board does not know
 
 
 def format_value(value, unit, tr=ENGLISH):
@@ -115,3 +119,45 @@ def run_failure(error):
         return Msg("run.no_solution")
 
     return Msg("run.failed", reason=str(error))
+
+
+def chosen_sizes(result, tr=ENGLISH):
+    """The components whose size the model chose (mode 'optimized'): what it built, and what it left out.
+
+    Gives {"any": there is a component whose size the model could choose, "built": [...], "not_built": [names]}.
+    A built component is {"name", "size", "cost", "color"}: its size with the unit ("2,471 kW (heat)"), its cost per
+    year, and the colour that the board gives it. The built ones come first, the most expensive first.
+    """
+
+    table = result.capacities
+    needed = ("Component", "Mode", "Capacity", "Unit", "Annualised cost (€/a)")
+    if not set(needed) <= set(table.columns):
+        return {"any": False, "built": [], "not_built": []}
+
+    where = {name: table.columns.index(name) for name in needed}
+    colors = {name: STYLE[key][1] for key, name in NODE_NAMES.items() if key in STYLE}
+    built, not_built, found = [], [], False
+
+    for row in table.rows:
+        if row[where["Mode"]] != "optimized":
+            continue
+        found = True
+        name, capacity = row[where["Component"]], row[where["Capacity"]] or 0.0
+
+        if capacity <= BUILT:
+            not_built.append(term(tr, name))
+            continue
+
+        number = f"{capacity:,.1f}"
+        number = number[:-2] if number.endswith(".0") else number
+        cost = row[where["Annualised cost (€/a)"]] or 0.0
+        built.append((cost, {
+            "name": term(tr, name),
+            "size": f"{tr.localize(number)} {term(tr, row[where['Unit']])}",
+            "cost": tr("result.chosen.per_year", cost=format_value(cost, "€", tr)),
+            "color": colors.get(name, GREY),
+        }))
+
+    built.sort(key=lambda item: -item[0])
+
+    return {"any": found, "built": [item for _, item in built], "not_built": not_built}
