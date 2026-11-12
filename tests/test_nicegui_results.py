@@ -1,8 +1,11 @@
 """The tabs of a result on the NiceGUI page: carriers, costs, capacities; in both languages (simulated user)."""
 
+import base64
 import datetime
 import shutil
 
+import numpy as np
+import plotly.graph_objects as go
 import pytest
 
 pytest.importorskip("nicegui")
@@ -84,6 +87,12 @@ def rich_result(horizon=24.0, with_flows=True, costs=True, capacities=True):
     )
 
 
+def figure_of(element):
+    """The chart of a page element as a figure (the element holds a dict with data, layout and config)."""
+
+    return go.Figure(element.figure)
+
+
 def label_of(user, marker):
     return field(user, marker).props["label"]
 
@@ -139,14 +148,16 @@ async def test_the_headline_figures_and_their_help_are_translated(user: User, mo
 async def test_the_tab_of_a_carrier_has_the_flows_the_two_tables_and_the_sankey_diagram(user: User, monkeypatch):
     await show(user, monkeypatch, rich_result())
 
-    flows = field(user, "draft-flows-electricity").figure
+    flows = figure_of(field(user, "draft-flows-electricity"))
     assert [trace.name for trace in flows.data] == ["Grid import", "PV", "Demand", "Grid feed-in", "Heating rod"]
     assert table_cells(user, "draft-supply-electricity") == [["Grid import", "6,000", "60.0"], ["PV", "4,000", "40.0"]]
     assert table_cells(user, "draft-use-electricity") == [
         ["Electricity demand", "6,000", "60.0"], ["Heating rod", "2,000", "20.0"], ["Grid feed-in", "2,000", "20.0"]]
     assert [c["label"] for c in field(user, "draft-supply-electricity").columns] == ["Component", "Energy (kWh)", "Share (%)"]
-    sankey = field(user, "draft-sankey-electricity").figure.data[0]
-    assert list(sankey.node.label) == ["Grid import", "PV", "Electricity", "Electricity demand", "Heating rod", "Grid feed-in"]
+    sankey = figure_of(field(user, "draft-sankey-electricity")).data[0]
+    assert list(sankey.node.label) == [
+        "Grid import, 6,000 kWh", "PV, 4,000 kWh", "Electricity, 10,000 kWh", "Electricity demand, 6,000 kWh",
+        "Heating rod, 2,000 kWh", "Grid feed-in, 2,000 kWh"]
     await user.should_see("Energy flows")
     await user.should_see("Supply and use")
 
@@ -154,11 +165,12 @@ async def test_the_tab_of_a_carrier_has_the_flows_the_two_tables_and_the_sankey_
 async def test_the_tab_of_a_carrier_is_in_german_with_numbers_the_german_way(user: User, monkeypatch):
     await show(user, monkeypatch, rich_result(), language="de")
 
-    assert [t.name for t in field(user, "draft-flows-electricity").figure.data] == [
+    assert [t.name for t in figure_of(field(user, "draft-flows-electricity")).data] == [
         "Netzbezug", "PV-Anlage", "Bedarf", "Netzeinspeisung", "Heizstab"]
     assert table_cells(user, "draft-supply-electricity") == [["Netzbezug", "6.000", "60,0"], ["PV-Anlage", "4.000", "40,0"]]
     assert [c["label"] for c in field(user, "draft-use-electricity").columns] == ["Bauteil", "Energie (kWh)", "Anteil (%)"]
-    assert list(field(user, "draft-sankey-electricity").figure.data[0].node.label)[:3] == ["Netzbezug", "PV-Anlage", "Strom"]
+    assert list(figure_of(field(user, "draft-sankey-electricity")).data[0].node.label)[:3] == [
+        "Netzbezug, 6.000 kWh", "PV-Anlage, 4.000 kWh", "Strom, 10.000 kWh"]
     await user.should_see("Energieflüsse")
     await user.should_see("Bereitstellung und Verwendung")
     await user.should_see("Sankey-Diagramm")
@@ -188,7 +200,7 @@ async def test_a_result_without_hourly_flows_says_so_and_still_has_the_tables_an
 async def test_the_costs_tab_has_the_chart_and_the_table(user: User, monkeypatch):
     await show(user, monkeypatch, rich_result())
 
-    chart = field(user, "draft-cost-chart").figure
+    chart = figure_of(field(user, "draft-cost-chart"))
     assert {trace.name for trace in chart.data} == {"Investment and fixed O&M", "Energy purchase", "Revenue"}
     assert table_cells(user, "draft-costs-table") == [
         ["Heating rod", "Investment and fixed O&M", "19,080"], ["Grid import", "Energy purchase", "36,273"],
@@ -202,7 +214,7 @@ async def test_the_costs_tab_is_in_german(user: User, monkeypatch):
     assert table_cells(user, "draft-costs-table") == [
         ["Heizstab", "Investition und feste Betriebskosten", "19.080"], ["Netzbezug", "Energiebezug", "36.273"],
         ["Netzeinspeisung", "Erlös", "-500"]]
-    assert {t.name for t in field(user, "draft-cost-chart").figure.data} == {
+    assert {t.name for t in figure_of(field(user, "draft-cost-chart")).data} == {
         "Investition und feste Betriebskosten", "Energiebezug", "Erlös"}
     await user.should_see("Woher die Systemkosten kommen")
 
@@ -377,7 +389,7 @@ async def test_a_real_result_has_the_numbers_of_the_run(user: User):
     user.find(marker="draft-run").click()
     await user.should_see(marker="draft-tab-costs", retries=200)
 
-    assert [t.name for t in field(user, "draft-flows-electricity").figure.data] == ["Grid import", "Demand"]
+    assert [t.name for t in figure_of(field(user, "draft-flows-electricity")).data] == ["Grid import", "Demand"]
     assert table_cells(user, "draft-costs-table") == [["Grid import", "Energy purchase", "72"]]
     assert table_cells(user, "draft-supply-electricity")[0][:2] == ["Grid import", "240"]
     await user.should_see("No components with a capacity in this system.")
@@ -457,3 +469,243 @@ async def test_the_result_of_an_opened_file_has_the_optimised_system_too(user: U
     await user.should_see(marker="file-chosen")
 
     assert chosen_texts(user, "file", 0)[0] == "Heating rod"
+
+
+# ---------------------------------------------------------------------------
+# the window of time of the flows
+# ---------------------------------------------------------------------------
+
+def long_result(hours=1440):
+    """The result by hand, but with `hours` hourly steps for the electricity and the heat (the gas has no flows)."""
+
+    result = rich_result(horizon=float(hours))
+
+    def flows(columns):
+        return FlowTable(start=START, step_hours=1.0, columns=columns,
+                         values=[[1.0 + (i % 24) for i in range(hours)] for _ in columns])
+
+    result.buses["electricity"].flows = flows([
+        "grid_import-->electricity", "pv-->electricity", "electricity-->demand", "electricity-->heating_rod",
+        "electricity-->grid_feedin"])
+    result.buses["heat"].flows = flows(["heating_rod-->heat", "heat-->heat_demand"])
+
+    return result
+
+
+def toggle(user, bus="electricity"):
+    return field(user, f"draft-range-{bus}")
+
+
+def points(user, bus="electricity"):
+    """The number of values of the first trace of the chart of a carrier. (A list of numbers goes to the browser as
+    a block of bytes with its type; the figure of the element holds it that way.)"""
+
+    y = figure_of(field(user, f"draft-flows-{bus}")).data[0].y
+    if isinstance(y, dict):
+        y = np.frombuffer(base64.b64decode(y["bdata"]), dtype=y["dtype"])
+
+    return len(y)
+
+
+async def test_a_period_of_a_day_or_less_has_no_buttons_and_no_slider(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    assert exists(user, "draft-flows-electricity")
+    assert not exists(user, "draft-range-electricity") and not exists(user, "draft-slider-electricity")
+
+
+async def test_a_longer_period_has_buttons_the_dates_of_the_window_and_starts_with_the_whole_period(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+
+    assert [o["label"] for o in toggle(user).props["options"]] == ["Day", "Week", "Month", "Whole period"]
+    assert toggle(user).value == "all"
+    assert points(user) == 1440                                            # every value of the 60 days
+    assert field(user, "draft-window-electricity").text == "2021-01-01 to 2021-03-01"
+    assert field(user, "draft-zoom-electricity").text == "Drag in the chart to zoom, double-click to go back"
+    assert not exists(user, "draft-slider-electricity")                    # nothing to move: it is all there
+
+
+async def test_the_whole_period_shows_every_value_with_a_step_of_an_hour(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+
+    flows = figure_of(field(user, "draft-flows-electricity"))
+
+    assert points(user) == 1440 and flows.data[0].dx == 3_600_000 and flows.data[0].x0 == START
+
+
+async def test_the_week_button_shows_a_week_of_hourly_values_and_a_slider_moves_the_window(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+
+    toggle(user).set_value("week")
+    await settle()
+
+    assert points(user) == 168 and field(user, "draft-window-electricity").text == "2021-01-01 to 2021-01-07"
+    assert not exists(user, "draft-zoom-electricity")
+    slider = field(user, "draft-slider-electricity")
+    assert (slider.props["min"], slider.props["max"]) == (0, 8)            # 1440 hours: nine weeks, the last one short
+
+    slider.set_value(1)
+    await settle()
+
+    assert field(user, "draft-window-electricity").text == "2021-01-08 to 2021-01-14"
+    assert figure_of(field(user, "draft-flows-electricity")).data[0].x0 == datetime.datetime(2021, 1, 8)
+
+
+async def test_moving_the_slider_changes_the_chart_in_place_and_does_not_draw_it_again(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+    toggle(user).set_value("week")
+    await settle()
+    drawn = field(user, "draft-flows-electricity")
+
+    field(user, "draft-slider-electricity").set_value(3)
+    await settle()
+
+    assert field(user, "draft-flows-electricity") is drawn
+
+
+async def test_a_day_has_24_values_and_a_month_720(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+
+    toggle(user).set_value("day")
+    await settle()
+    assert points(user) == 24 and field(user, "draft-slider-electricity").props["max"] == 59
+
+    toggle(user).set_value("month")
+    await settle()
+    assert points(user) == 720 and field(user, "draft-slider-electricity").props["max"] == 1
+
+
+async def test_the_whole_period_takes_the_slider_away_and_a_new_mode_starts_at_the_beginning(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+    toggle(user).set_value("week")
+    await settle()
+    field(user, "draft-slider-electricity").set_value(4)
+    await settle()
+
+    toggle(user).set_value("all")
+    await settle()
+    assert not exists(user, "draft-slider-electricity") and points(user) == 1440
+    assert exists(user, "draft-zoom-electricity")                          # the hint to zoom is back
+
+    toggle(user).set_value("week")
+    await settle()
+    assert field(user, "draft-window-electricity").text.startswith("2021-01-01")      # a new mode starts at the beginning
+
+
+async def test_each_carrier_has_its_own_window(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+
+    toggle(user).set_value("week")
+    await settle()
+
+    assert toggle(user, "electricity").value == "week" and toggle(user, "heat").value == "all"
+    assert points(user, "electricity") == 168 and points(user, "heat") == 1440
+
+
+async def test_the_window_is_in_german(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result(), language="de")
+
+    assert [o["label"] for o in toggle(user).props["options"]] == ["Tag", "Woche", "Monat", "Ganzer Zeitraum"]
+    assert field(user, "draft-window-electricity").text == "2021-01-01 bis 2021-03-01"
+    assert field(user, "draft-zoom-electricity").text == "Im Diagramm ziehen zum Zoomen, Doppelklick zum Zurücksetzen"
+
+
+async def test_a_year_is_light_in_every_window(user: User, monkeypatch):
+    import orjson
+
+    def sent():
+        return len(orjson.dumps(field(user, "draft-flows-electricity").figure, option=orjson.OPT_SERIALIZE_NUMPY))
+
+    await show(user, monkeypatch, long_result(8760))
+
+    assert points(user) == 8760 and sent() < 600_000                       # every value of a year: it was 2.9 MB
+    toggle(user).set_value("month")
+    await settle()
+    assert points(user) == 720 and sent() < 80_000 and field(user, "draft-slider-electricity").props["max"] == 12
+    toggle(user).set_value("week")
+    await settle()
+    assert points(user) == 168 and sent() < 40_000 and field(user, "draft-slider-electricity").props["max"] == 52
+
+
+async def test_the_gas_carrier_and_a_carrier_without_flows_have_no_buttons(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+
+    assert exists(user, "draft-nothing-flows-gas") and not exists(user, "draft-range-gas")
+
+
+async def test_the_buttons_of_a_result_of_an_opened_file_have_their_own_markers(user: User, monkeypatch):
+    async def solver(scenario):
+        return long_result()
+
+    use_solver(monkeypatch, solver)
+    await user.open("/")
+    await open_example(user, "pv_and_grid")
+    user.find(marker="run").click()
+    await user.should_see(marker="file-range-electricity")
+
+    assert field(user, "file-range-electricity").value == "all" and not exists(user, "draft-range-electricity")
+
+
+# ---------------------------------------------------------------------------
+# download and font of the charts
+# ---------------------------------------------------------------------------
+
+async def test_every_chart_downloads_as_a_png_of_twice_the_resolution_with_a_name_that_says_what_it_shows(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    for marker, name in (("draft-flows-electricity", "electricity-flows"), ("draft-sankey-electricity", "electricity-sankey"),
+                         ("draft-cost-chart", "costs"), ("draft-flows-heat", "heat-flows")):
+        config = field(user, marker).figure["config"]
+        assert config["toImageButtonOptions"] == {"format": "png", "scale": 2, "filename": name}, marker
+        assert config["displaylogo"] is False
+
+
+async def test_the_download_settings_stay_when_the_window_is_changed(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+
+    toggle(user).set_value("week")
+    await settle()
+    field(user, "draft-slider-electricity").set_value(2)
+    await settle()
+
+    config = field(user, "draft-flows-electricity").figure["config"]
+    assert config["toImageButtonOptions"]["filename"] == "electricity-flows" and config["toImageButtonOptions"]["scale"] == 2
+
+
+async def test_the_charts_on_the_page_have_large_bold_axes_and_names(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    flows = figure_of(field(user, "draft-flows-electricity"))
+    assert flows.layout.xaxis.tickfont.weight == "bold" and flows.layout.xaxis.tickfont.size == 15
+    assert flows.layout.yaxis.title.font.weight == "bold" and flows.layout.yaxis.title.font.size == 17
+    sankey = figure_of(field(user, "draft-sankey-electricity"))
+    assert sankey.data[0].textfont.weight == "bold" and sankey.data[0].node.label[0] == "Grid import, 6,000 kWh"
+
+
+async def test_the_time_axis_on_the_page_says_the_date_and_the_time_when_zoomed_in(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+
+    for mode in ("all", "week", "day"):
+        toggle(user).set_value(mode)
+        await settle()
+        axis = figure_of(field(user, "draft-flows-electricity")).layout.xaxis
+        assert [(tuple(s.dtickrange), s.value) for s in axis.tickformatstops] == [
+            ((None, 86_399_999), "%H:%M<br>%Y-%m-%d"), ((86_400_000, None), "%Y-%m-%d")], mode
+        assert axis.title.text == "Date and time" and axis.hoverformat == "%Y-%m-%d %H:%M"
+
+
+async def test_the_time_axis_on_the_page_is_in_german(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result(), language="de")
+
+    axis = figure_of(field(user, "draft-flows-electricity")).layout.xaxis
+
+    assert axis.title.text == "Datum und Uhrzeit" and axis.hoverformat == "%d.%m.%Y %H:%M"
+    assert tuple(axis.tickformatstops[1].dtickrange) == (86_400_000, None) and axis.tickformatstops[1].value == "%d.%m.%Y"
+
+
+async def test_the_sankey_diagram_on_the_page_says_the_value_of_every_flow_in_german(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result(), language="de")
+
+    labels = list(figure_of(field(user, "draft-sankey-electricity")).data[0].node.label)
+
+    assert labels[:3] == ["Netzbezug, 6.000 kWh", "PV-Anlage, 4.000 kWh", "Strom, 10.000 kWh"]

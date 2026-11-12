@@ -9,6 +9,8 @@ the result, and the diagram of the system comes later.
 
 from nicegui import ui
 
+from frontend_nicegui.chart_style import as_chart
+from frontend_nicegui.ranges import MODE_TEXTS, available_modes, is_long, view_frame, window_count
 from frontend_nicegui.result_charts import cost_figure, flows_figure, sankey_figure
 from frontend_nicegui.result_terms import bus_label, table_for_display
 
@@ -18,6 +20,53 @@ def _table(table, tr, marker):
     ui.table(columns=columns, rows=rows).props("dense flat").classes("w-full").mark(marker)
 
 
+def _flows_with_window(bus, summary, tr, key):
+    """The chart of the flows of a carrier. A period of more than a day has buttons for a day, a week, a month,
+    the whole period (every value) and, for a long period, its daily averages, and a slider that moves the window
+    through the period. Only what is in the window is sent to the browser; the daily averages are light and are
+    the first look, every value of a year is about half a megabyte and is there for zooming into."""
+
+    modes = available_modes(summary.flows)
+    view = {"mode": "all", "position": 0}
+
+    def figure():
+        return as_chart(flows_figure(bus, summary, tr, view=(view["mode"], view["position"])), f"{bus}-flows")
+
+    def window_text():
+        frame, _ = view_frame(summary.flows, view["mode"], view["position"])
+        return tr("result.range.window", start=f"{frame.index[0]:%Y-%m-%d}", end=f"{frame.index[-1]:%Y-%m-%d}")
+
+    @ui.refreshable
+    def controls():
+        refs = {}
+
+        def move(event):
+            view["position"] = int(event.value)
+            refs["window"].set_text(window_text())
+            refs["plot"].update_figure(figure())
+
+        with ui.row().classes("w-full items-center gap-4"):
+            ui.toggle(
+                {mode: tr(MODE_TEXTS[mode]) for mode in modes}, value=view["mode"], on_change=change_mode,
+            ).props("dense no-caps").mark(f"{key}-range-{bus}")
+            refs["window"] = ui.label(window_text()).classes("text-grey text-sm").mark(f"{key}-window-{bus}")
+            if view["mode"] == "all" and is_long(summary.flows):
+                ui.label(tr("result.range.zoom")).classes("text-grey text-sm").mark(f"{key}-zoom-{bus}")
+
+        count = window_count(summary.flows, view["mode"])
+        if count > 1:
+            ui.slider(min=0, max=count - 1, step=1, value=view["position"], on_change=move).props(
+                "label").classes("w-full").mark(f"{key}-slider-{bus}")
+
+        refs["plot"] = ui.plotly(figure()).classes("w-full").mark(f"{key}-flows-{bus}")
+
+    def change_mode(event):
+        view["mode"], view["position"] = event.value, 0
+        controls.refresh()
+
+    controls()
+
+
 def _bus_panel(bus, summary, tr, key):
     ui.label(tr("result.section.flows")).classes("text-lg font-semibold")
     figure = flows_figure(bus, summary, tr)
@@ -25,8 +74,10 @@ def _bus_panel(bus, summary, tr, key):
         ui.label(tr("result.no_flows")).classes("text-grey").mark(f"{key}-no-flows-{bus}")
     elif not figure.data:
         ui.label(tr("result.nothing_flows")).classes("text-grey").mark(f"{key}-nothing-flows-{bus}")
+    elif available_modes(summary.flows):
+        _flows_with_window(bus, summary, tr, key)
     else:
-        ui.plotly(figure).classes("w-full").mark(f"{key}-flows-{bus}")
+        ui.plotly(as_chart(figure, f"{bus}-flows")).classes("w-full").mark(f"{key}-flows-{bus}")
 
     ui.label(tr("result.section.supply_use")).classes("text-lg font-semibold")
     with ui.row().classes("w-full gap-4 no-wrap"):
@@ -41,7 +92,7 @@ def _bus_panel(bus, summary, tr, key):
     figure = sankey_figure(bus, summary, tr)
     if figure is not None:
         ui.label(tr("result.section.sankey")).classes("text-lg font-semibold")
-        ui.plotly(figure).classes("w-full").mark(f"{key}-sankey-{bus}")
+        ui.plotly(as_chart(figure, f"{bus}-sankey")).classes("w-full").mark(f"{key}-sankey-{bus}")
 
 
 def _costs_panel(result, tr, key):
@@ -52,7 +103,7 @@ def _costs_panel(result, tr, key):
     ui.label(tr("result.section.costs")).classes("text-lg font-semibold")
     figure = cost_figure(result, tr)
     if figure is not None:
-        ui.plotly(figure).classes("w-full").mark(f"{key}-cost-chart")
+        ui.plotly(as_chart(figure, "costs")).classes("w-full").mark(f"{key}-cost-chart")
     _table(result.cost_breakdown, tr, f"{key}-costs-table")
 
 

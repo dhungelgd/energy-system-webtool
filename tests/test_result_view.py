@@ -323,12 +323,12 @@ def test_a_size_of_a_thousand_or_more_has_the_separator_of_the_language():
     assert chosen_sizes(sized([["Heating rod", "optimized", 2471.04, "kW (heat)", 19080.3]]), DE)["built"][0]["size"] == "2.471 kW (Wärme)"
 
 
-def test_each_built_component_has_the_colour_of_its_tile_and_an_unknown_one_is_grey():
-    from frontend_nicegui.board import STYLE
+def test_each_built_component_has_its_colour_of_the_charts_and_an_unknown_one_is_grey():
+    from frontend_nicegui.palette import COLORS, GREY
 
     chosen = chosen_sizes(sized([["PV", "optimized", 1.0, "kW", 1.0], ["Something new", "optimized", 1.0, "kW", 0.5]]))
 
-    assert chosen["built"][0]["color"] == STYLE["pv"][1] and chosen["built"][1]["color"] == "#9AA5B1"
+    assert chosen["built"][0]["color"] == COLORS["pv"] and chosen["built"][1]["color"] == GREY
 
 
 def test_when_every_size_is_fixed_there_is_nothing_that_the_model_chose():
