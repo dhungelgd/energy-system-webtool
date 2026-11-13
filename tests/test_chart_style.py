@@ -76,3 +76,9 @@ def test_a_chart_for_the_page_is_a_dict_with_data_layout_and_config_and_the_figu
     assert set(chart) >= {"data", "layout", "config"} and chart["config"]["toImageButtonOptions"]["filename"] == "costs"
     assert figure.to_json() == before
     assert len(go.Figure(chart).data) == 1                                  # and a figure can be made of it again
+
+
+def test_a_heat_map_has_axes_too():
+    figure = style_figure(go.Figure(go.Heatmap(z=[[1, 2], [3, 4]])))
+
+    assert figure.layout.xaxis.tickfont.weight == BOLD and figure.layout.yaxis.title.font.size == AXIS_TITLE_SIZE

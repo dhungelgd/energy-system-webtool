@@ -122,8 +122,8 @@ async def test_a_result_has_a_tab_for_each_energy_carrier_the_costs_and_the_capa
         "Electricity", "Heat", "Gas", "Costs", "Capacities"]
     with user.client:
         labels = [e.props["label"] for e in ElementFilter(kind=ui.tab)]
-    # the three views of the page have tabs too: System, Check, Results
-    assert labels.count("Electricity") == labels.count("Costs") == 1 and len(labels) == 3 + 5
+    # the three views of the page have tabs, and each of the three carriers has five tabs inside its tab
+    assert labels.count("Electricity") == labels.count("Costs") == 1 and len(labels) == 3 + 5 + 3 * 5
 
 
 async def test_the_tabs_are_in_german(user: User, monkeypatch):
@@ -709,3 +709,159 @@ async def test_the_sankey_diagram_on_the_page_says_the_value_of_every_flow_in_ge
     labels = list(figure_of(field(user, "draft-sankey-electricity")).data[0].node.label)
 
     assert labels[:3] == ["Netzbezug, 6.000 kWh", "PV-Anlage, 4.000 kWh", "Strom, 10.000 kWh"]
+
+
+# ---------------------------------------------------------------------------
+# the tabs inside a carrier: the monthly balance, the duration curve, the heat map
+# ---------------------------------------------------------------------------
+
+SUB_TABS = ("flows", "monthly", "duration", "heatmap", "tables")
+TWO_MONTHS = 59 * 24                                                      # January and February
+
+
+def sub_labels(user, bus="electricity"):
+    return [label_of(user, f"draft-sub-{bus}-{name}") for name in SUB_TABS]
+
+
+def z_of(user, marker):
+    """The values of a heat map of the page as a matrix (they go to the browser as a block of bytes)."""
+
+    z = figure_of(field(user, marker)).data[0].z
+
+    if isinstance(z, dict):
+        shape = tuple(int(n) for n in str(z["shape"]).split(","))
+        return np.frombuffer(base64.b64decode(z["bdata"]), dtype=z["dtype"]).reshape(shape)
+
+    return np.asarray(z)
+
+
+async def test_each_carrier_has_a_tab_inside_for_each_kind_of_view(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    for bus in ("electricity", "heat", "gas"):
+        assert sub_labels(user, bus) == ["Flows over time", "Monthly balance", "Duration curve", "Heat map", "Supply, use and Sankey"]
+
+
+async def test_the_tabs_inside_a_carrier_are_in_german(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result(), language="de")
+
+    assert sub_labels(user) == ["Verlauf", "Monatsbilanz", "Dauerlinie", "Heatmap", "Bereitstellung, Verwendung, Sankey"]
+
+
+async def test_the_flows_the_tables_and_the_sankey_diagram_are_still_there_in_their_tabs(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    for name, marker in (("flows", "draft-flows-electricity"), ("tables", "draft-supply-electricity"), ("tables", "draft-sankey-electricity")):
+        with user.client:
+            assert field(user, marker) in list(field(user, f"draft-subpanel-electricity-{name}").descendants()), marker
+
+
+async def test_the_monthly_balance_has_the_energy_of_each_month(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result(TWO_MONTHS))
+
+    figure = figure_of(field(user, "draft-monthly-electricity"))
+
+    assert [t.name for t in figure.data] == ["Grid import", "PV", "Demand", "Grid feed-in", "Heating rod"]
+    assert len(figure.data[0].x) == 2                                       # January and February
+    assert field(user, "draft-monthly-electricity").figure["config"]["toImageButtonOptions"]["filename"] == "electricity-monthly"
+    await user.should_see("Energy per month")
+
+
+async def test_the_monthly_balance_says_what_it_needs_when_the_period_is_too_short(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    assert not exists(user, "draft-monthly-electricity")
+    assert field(user, "draft-monthly-note-electricity").text == "The monthly balance needs a period of at least two calendar months."
+
+
+async def test_the_monthly_balance_is_in_german(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result(TWO_MONTHS), language="de")
+
+    axis = figure_of(field(user, "draft-monthly-electricity")).layout
+
+    assert axis.xaxis.title.text == "Monat" and axis.yaxis.title.text == "Energie (kWh)" and axis.xaxis.tickformat == "%m.%Y"
+    await user.should_see("Energie je Monat")
+
+
+async def test_the_duration_curve_has_every_flow_sorted_and_is_thinned_out_for_a_long_period(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+
+    figure = figure_of(field(user, "draft-duration-electricity"))
+    y = figure.data[0].y
+    y = np.frombuffer(base64.b64decode(y["bdata"]), dtype=y["dtype"]) if isinstance(y, dict) else np.asarray(y)
+
+    assert figure.data[0].name == "Demand" and len(y) == 1000 and list(y) == sorted(y, reverse=True)
+    assert field(user, "draft-duration-electricity").figure["config"]["toImageButtonOptions"]["filename"] == "electricity-duration"
+    await user.should_see("Every value of the period, sorted from the highest to the lowest: for how many hours a power is reached.")
+
+
+async def test_the_duration_curve_of_a_short_period_keeps_every_value_and_a_dead_carrier_says_so(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    assert exists(user, "draft-duration-electricity") and exists(user, "draft-duration-heat")
+    assert not exists(user, "draft-duration-gas")
+    assert field(user, "draft-duration-note-gas").text == "Nothing flows through this energy carrier in this run."
+
+
+async def test_the_heat_map_can_show_the_demand_or_a_supply_and_changes_in_place(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+    pick = field(user, "draft-heatmap-pick-electricity")
+    drawn = field(user, "draft-heatmap-electricity")
+
+    assert list(pick.options.values()) == ["Demand", "Grid import", "PV"] and pick.value == "demand"
+    assert z_of(user, "draft-heatmap-electricity").shape == (24, 60)       # 24 hours, 60 days
+    assert figure_of(drawn).data[0].colorscale[-1][1] == "#14202B"
+
+    pick.set_value("pv-->electricity")
+    await settle()
+
+    assert field(user, "draft-heatmap-electricity") is drawn                # the same chart, changed in place
+    assert figure_of(drawn).data[0].colorscale[-1][1] == "#C98200"
+    assert drawn.figure["config"]["toImageButtonOptions"]["filename"] == "electricity-heatmap-pv"
+
+
+async def test_the_heat_map_shows_the_value_of_each_hour_of_each_day(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result())
+
+    z = z_of(user, "draft-heatmap-electricity")
+
+    assert z[0, 0] == 1.0 and z[23, 0] == 24.0 and z[5, 59] == 6.0          # the demand is 1 + the hour of the day
+
+
+async def test_the_heat_map_is_in_german(user: User, monkeypatch):
+    await show(user, monkeypatch, long_result(), language="de")
+
+    pick = field(user, "draft-heatmap-pick-electricity")
+    layout = figure_of(field(user, "draft-heatmap-electricity")).layout
+
+    assert list(pick.options.values()) == ["Bedarf", "Netzbezug", "PV-Anlage"] and pick.props["label"] == "Anzeigen"
+    assert layout.xaxis.title.text == "Datum" and layout.yaxis.title.text == "Stunde des Tages"
+    await user.should_see("Die Tageszeit über den Zeitraum")
+
+
+async def test_the_heat_map_says_what_it_needs_when_the_period_is_too_short(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result())
+
+    assert not exists(user, "draft-heatmap-electricity") and not exists(user, "draft-heatmap-pick-electricity")
+    assert field(user, "draft-heatmap-note-electricity").text == "The heat map needs at least two days of hourly values."
+
+
+async def test_a_result_without_hourly_flows_says_so_in_the_three_new_tabs(user: User, monkeypatch):
+    await show(user, monkeypatch, rich_result(with_flows=False))
+
+    for marker in ("draft-monthly-note-electricity", "draft-duration-note-electricity", "draft-heatmap-note-electricity"):
+        assert field(user, marker).text == "This result has no hourly flows.", marker
+
+
+async def test_the_new_charts_have_the_markers_of_an_opened_file_too(user: User, monkeypatch):
+    async def solver(scenario):
+        return long_result(TWO_MONTHS)
+
+    use_solver(monkeypatch, solver)
+    await user.open("/")
+    await open_example(user, "pv_and_grid")
+    user.find(marker="run").click()
+    await user.should_see(marker="file-monthly-electricity")
+
+    assert exists(user, "file-duration-electricity") and exists(user, "file-heatmap-electricity")
+    assert not exists(user, "draft-monthly-electricity")

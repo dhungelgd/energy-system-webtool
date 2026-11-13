@@ -87,7 +87,7 @@ def time_axis(tr):
     )
 
 
-def _split(columns, bus):
+def split_flows(columns, bus):
     """The flows of a bus by what they do: supplies to it, the use that is the demand, any other use."""
 
     supply = sorted(c for c in columns if c.endswith(f"-->{bus}"))
@@ -116,7 +116,7 @@ def flows_figure(bus, summary, tr=ENGLISH, view=None):
         frame = summary.flows.to_frame(with_end_row=False)
     else:
         frame, _ = view_frame(summary.flows, mode, view[1])
-    supply, demand, other = _split(frame.columns, bus)
+    supply, demand, other = split_flows(frame.columns, bus)
 
     # every value has its time from a start and a step: a time stamp for each value would be most of what is sent
     start = frame.index[0].to_pydatetime()

@@ -30,7 +30,7 @@ def style_figure(figure):
         hoverlabel=dict(font=dict(family=FONT_FAMILY, size=HOVER_SIZE)),
     )
 
-    if any(trace.type in ("scatter", "bar") for trace in figure.data):             # a Sankey diagram has no axes
+    if any(trace.type in ("scatter", "bar", "heatmap") for trace in figure.data):  # a Sankey diagram has no axes
         figure.update_xaxes(tickfont=dict(size=TICK_SIZE, weight=BOLD), title_font=dict(size=AXIS_TITLE_SIZE, weight=BOLD))
         figure.update_yaxes(tickfont=dict(size=TICK_SIZE, weight=BOLD), title_font=dict(size=AXIS_TITLE_SIZE, weight=BOLD))
 
