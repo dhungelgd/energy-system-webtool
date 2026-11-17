@@ -60,6 +60,7 @@ from frontend_nicegui.result_view import (
     solver_text,
 )
 from frontend_nicegui.scenario_view import component_rows, describe_period, series_rows
+from frontend_nicegui.series_bulk_view import render_bulk
 from frontend_nicegui.status import COLORS, ICONS, badge_of, draft_status, run_hint, status_text
 
 TITLE = "Energy System Web Tool"
@@ -247,7 +248,8 @@ def home_page():
     state = PageState(choose_language(request.query_params.get("lang"), request.headers.get("accept-language")))
     boxes = {}                      # the checkboxes of the page that is drawn now
     shown = {"results": None}       # what the block of the results of the draft shows now (see sync_results)
-    chrome = {"findings": (0, 0), "list": [], "tabs": None, "badge": None, "panels": None, "sheet": None}
+    chrome = {"findings": (0, 0), "list": [], "tabs": None, "badge": None, "panels": None, "sheet": None,
+              "series_anchor": None, "start_input": None, "steps_input": None}
     # what the top bar, the tabs, the board and the drawer show of the check (see update_chrome)
 
     # ----- the language ----------------------------------------------------
@@ -320,6 +322,7 @@ def home_page():
                     format="%d", on_change=set_steps,
                     validation={steps_hint: lambda value: is_valid(parse_steps, value)},
                 ).props(f"outlined dense debounce={TYPING_DELAY_MS}").classes("w-40").mark("draft-steps")
+                chrome["start_input"], chrome["steps_input"] = start_input, steps_input
 
                 for label_key, steps in (("steps.day", 24), ("steps.week", 168), ("steps.year", 8760)):
                     ui.button(tr(label_key), on_click=lambda _, n=steps: setattr(steps_input, "value", n)).props(
@@ -383,6 +386,17 @@ def home_page():
         if tabs is not None and not tabs.is_deleted:
             tabs.set_value(name)
 
+    def go_to_series_file():
+        """From the top bar to the card for the file with all the time series: show the system view and scroll to it
+        (a moment later, when the view is there, so that the browser knows where the card is)."""
+
+        show_view("system")
+        anchor = chrome["series_anchor"]
+        if anchor is not None and not anchor.is_deleted:
+            ui.run_javascript(
+                f'setTimeout(() => document.getElementById("{anchor.html_id}")?.scrollIntoView('
+                '{behavior: "smooth", block: "start"}), 150)')
+
     def update_chrome(findings):
         """Tell the top bar and the badge of the Check tab what the check found."""
 
@@ -420,6 +434,9 @@ def home_page():
 
         def text():
             return status_text(status, tr, format_elapsed(state.elapsed()))
+
+        ui.button(tr("header.series"), icon="upload_file", on_click=go_to_series_file).props("flat no-caps dense").mark(
+            "header-series").tooltip(tr("header.series_hint"))
 
         chip = ui.button(text(), icon=ICONS[status.kind], on_click=lambda: show_view("check")).props(
             f"outline no-caps dense color={COLORS[status.kind]}").mark("status")
@@ -670,11 +687,25 @@ def home_page():
         if sheet is not None and not sheet.is_deleted:
             sheet.set_value(state.selected is not None)         # open while a component is open
 
+    def refresh_bulk():
+        """The card for a file with all the series follows the components of the draft."""
+
+        state.refresh_bulk()
+
+    def take_period(start, hours):
+        """The period of a file with all the series becomes the period of the scenario (the two fields set the draft)."""
+
+        if start is not None and chrome["start_input"] is not None:
+            chrome["start_input"].value = start
+        if chrome["steps_input"] is not None:
+            chrome["steps_input"].value = hours
+
     def show_selection_in_boxes():
         for key, box in boxes.items():
             box.value = state.draft.is_selected(key)
         settings.refresh()
         overview.refresh()
+        refresh_bulk()
 
     def add_components(keys):
         """The repair of a finding: add the missing components (with their standard settings)."""
@@ -689,6 +720,7 @@ def home_page():
             state.draft.set(key, event.value)
             settings.refresh()
             overview.refresh()
+            refresh_bulk()
 
     def use_template(name):
         state.draft.apply_template(name)
@@ -836,6 +868,12 @@ def home_page():
         with ui.column().classes("w-full gap-3"):
             board()
 
+        with ui.column().classes("w-full") as anchor:               # a place that stays when the card is drawn again
+            render_bulk(
+                state, state.tr, on_series_change=lambda: (settings.refresh(), overview.refresh()),
+                on_components=add_components, on_period=take_period,
+            )
+        chrome["series_anchor"] = anchor
         open_card()
         details()
 

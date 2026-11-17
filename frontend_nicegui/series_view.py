@@ -16,23 +16,9 @@ from nicegui import events, ui
 
 from backend.series_input import PRICE_UNITS, has_series, is_optional, summarize
 from backend.timeseries_import import import_text
+from frontend_nicegui.series_bulk import BulkSession
 from frontend_nicegui.series_session import START_FILE, START_SCENARIO, UploadSession
-
-ACCEPT = ".csv,.txt,.tsv,.xlsx,.xlsm"
-AUTO = "auto"                                   # the choice "detect it" (the import takes None)
-
-DELIMITERS = {
-    ";": "series.settings.delimiter.semicolon",
-    ",": "series.settings.delimiter.comma",
-    "\t": "series.settings.delimiter.tab",
-    "|": "series.settings.delimiter.pipe",
-}
-DECIMALS = {",": "series.settings.decimal.comma", ".": "series.settings.decimal.point"}
-ENCODINGS = {
-    "utf-8": "series.settings.encoding.utf8",
-    "cp1252": "series.settings.encoding.cp1252",
-    "utf-16": "series.settings.encoding.utf16",
-}
+from frontend_nicegui.series_widgets import ACCEPT, notice_line, preview_block, settings_box, sheet_select
 
 
 def render_series(component, state, tr, on_series_change):
@@ -45,6 +31,7 @@ def render_series(component, state, tr, on_series_change):
     def changed():
         section.refresh()
         on_series_change()
+        state.refresh_bulk()                    # the card for the file with all the series shows what was taken over
 
     # ----- the choice between a constant and a series ------------------------
 
@@ -107,60 +94,9 @@ def render_series(component, state, tr, on_series_change):
         state.series_wanted.discard(key)
         changed()
 
-    def reread(session, **change):
-        session.change(**change)
-        section.refresh()
-
     def decide(session, name, value):
         setattr(session, name, value)
         section.refresh()
-
-    def line_changed(session, name, event):
-        used = getattr(session.table.used, name)
-        if event.value is not None and int(event.value) != used:
-            reread(session, **{name: int(event.value)})
-
-    def choose(session, name, choices, label_key, current, marker):
-        """A selection of an import setting with 'Automatic' first; None (detect it) is the same as AUTO."""
-
-        options = {AUTO: tr("series.settings.auto"), **{value: tr(text) for value, text in choices.items()}}
-        ui.select(
-            options, value=AUTO if current is None else current, label=tr(label_key),
-            on_change=lambda event: reread(session, **{name: None if event.value == AUTO else event.value}),
-        ).classes("w-full").mark(marker)
-
-    def import_settings(session):
-        with ui.expansion(
-            tr("series.settings.heading"), value=session.settings_open,
-            on_value_change=lambda event: setattr(session, "settings_open", event.value),
-        ).classes("w-full"):
-            ui.label(tr("series.settings.caption")).classes("text-grey text-sm")
-            options, used = session.options, session.table.used
-
-            if session.table.kind == "csv":
-                choose(session, "delimiter", DELIMITERS, "series.settings.delimiter", options.delimiter, f"series-delimiter-{key}")
-                choose(session, "decimal", DECIMALS, "series.settings.decimal", options.decimal, f"series-decimal-{key}")
-                choose(session, "encoding", ENCODINGS, "series.settings.encoding", options.encoding, f"series-encoding-{key}")
-            else:
-                choose(session, "decimal", DECIMALS, "series.settings.decimal", options.decimal, f"series-decimal-{key}")
-
-            for name, label_key, low in (("header_line", "series.settings.header", 0),
-                                         ("first_data_line", "series.settings.first_line", 1)):
-                ui.number(
-                    tr(label_key), value=getattr(used, name), min=low, precision=0, format="%d",
-                    on_change=lambda event, n=name: line_changed(session, n, event),
-                ).props("outlined dense debounce=500").classes("w-full").mark(
-                    f"series-{name.replace('_', '-')}-{key}")
-
-    def show_notice(notice):
-        if notice.code == "decimal_sign":
-            return                              # only worth a word when the program was not sure
-        if notice.level == "warning":
-            with ui.row().classes("items-start gap-2 no-wrap"):
-                ui.icon("warning", color="warning")
-                ui.label(import_text(notice, tr))
-        else:
-            ui.label(import_text(notice, tr)).classes("text-grey text-sm")
 
     def prepare(session):
         with ui.card().classes("w-full").mark(f"series-prepare-{key}"):
@@ -171,11 +107,7 @@ def render_series(component, state, tr, on_series_change):
                 ui.button(tr("series.cancel"), on_click=cancel).props("flat dense no-caps").mark(f"series-cancel-{key}")
                 return
 
-            if len(session.sheets()) > 1:
-                ui.select(
-                    session.sheets(), value=session.table.used.sheet, label=tr("series.sheet"),
-                    on_change=lambda event: reread(session, sheet=event.value),
-                ).classes("w-full").mark(f"series-sheet-{key}")
+            sheet_select(session, tr, key, section.refresh)
 
             if session.columns():
                 ui.select(
@@ -183,14 +115,10 @@ def render_series(component, state, tr, on_series_change):
                     on_change=lambda event: decide(session, "column", event.value),
                 ).classes("w-full").mark(f"series-column-{key}")
 
-            columns, rows = session.preview(tr)
-            ui.label(tr(
-                "series.preview", rows=tr.integer(len(session.table.df)), columns=tr.integer(len(session.table.df.columns)),
-            )).classes("text-grey text-sm")
-            ui.table(columns=columns, rows=rows).props("dense flat").classes("w-full").mark(f"series-preview-{key}")
+            preview_block(session, tr, key)
 
             for notice in session.notices(component):
-                show_notice(notice)
+                notice_line(notice, tr)
 
             if session.has_dates():
                 choice = session.start_choice_for(draft.start)
@@ -221,7 +149,7 @@ def render_series(component, state, tr, on_series_change):
                     value=session.aggregate, on_change=lambda event: decide(session, "aggregate", event.value),
                 ).mark(f"series-aggregate-{key}")
 
-            import_settings(session)
+            settings_box(session, tr, key, section.refresh)
 
             problem = session.problem(component, draft.start)
             if problem is not None:
@@ -231,6 +159,42 @@ def render_series(component, state, tr, on_series_change):
                 if problem is None:
                     ui.button(tr("series.use"), on_click=lambda: use(session)).props("no-caps").mark(f"series-use-{key}")
                 ui.button(tr("series.cancel"), on_click=cancel).props("flat no-caps").mark(f"series-cancel-{key}")
+
+    # ----- a column of the file with all the series that fits ------------------
+
+    def use_from_file():
+        session = state.bulk
+        if session is None or not session.apply(draft, [component]):
+            section.refresh()
+            return
+
+        state.uploads.pop(key, None)
+        state.series_wanted.discard(key)
+        state.bulk_done = (1, session.filename)
+        changed()
+
+    def file_hint():
+        """If the file with all the series has a column for this component that is not taken over yet: say so, and a
+        button that takes it over."""
+
+        session = state.bulk
+        if session is None or not session.readable:
+            return
+
+        session.update(BulkSession.components_with_series(draft))
+        column = session.mapping.get(component.template)
+        if column is None or session.is_used(component.template, column, draft):
+            return
+
+        problem = session.results([component], draft.start)[component.template][1]
+        with ui.row().classes("items-center gap-2").mark(f"series-bulk-hint-{key}"):
+            ui.icon("lightbulb", color="primary")
+            ui.label(tr("series.bulk_hint", file=session.filename, column=column))
+            if problem is None:
+                ui.button(tr("series.bulk_use", column=column), on_click=use_from_file).props(
+                    "outline dense no-caps").mark(f"series-bulk-hint-use-{key}")
+            else:
+                ui.label(import_text(problem, tr)).classes("text-negative text-sm").mark(f"series-bulk-hint-problem-{key}")
 
     # ----- the section -------------------------------------------------------
 
@@ -255,6 +219,8 @@ def render_series(component, state, tr, on_series_change):
         else:
             ui.label(tr("series.state.waiting" if is_optional(component) else "series.state.none")).classes(
                 "text-grey").mark(f"series-state-{key}")
+
+        file_hint()
 
         ui.upload(
             label=tr("series.upload"), on_upload=receive, auto_upload=True, max_files=1,

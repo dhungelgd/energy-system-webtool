@@ -44,6 +44,9 @@ class PageState:
         self.draft = ScenarioDraft()
         self.uploads = {}             # component key -> the UploadSession of a file that is being prepared
         self.series_wanted = set()    # components switched to "time series" that have none yet
+        self.bulk = None              # the BulkSession of a file with all the series that is being prepared
+        self.bulk_done = None         # (how many series, from which file) after the last file was used
+        self.bulk_card = None         # the card for the file with all the series (a refreshable), once it is drawn
         self.opened = None            # an OpenedFile
         self.file_error = None        # a Msg: why the last file could not be opened
         self.result = None            # the ScenarioResult of the opened scenario
@@ -75,6 +78,12 @@ class PageState:
         return self._tr
 
     # ----- time series that are being prepared -----------------------------
+
+    def refresh_bulk(self):
+        """Draw the card for the file with all the series again (a series was taken over, changed or taken away)."""
+
+        if self.bulk_card is not None:
+            self.bulk_card.refresh()
 
     def drop_stale_uploads(self):
         """Forget the files and choices of components that are not part of the draft any more."""
