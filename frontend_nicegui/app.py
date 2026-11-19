@@ -40,13 +40,21 @@ from frontend_nicegui.draft import (
     MAX_YEAR,
     MIN_STEPS,
     MIN_YEAR,
+    NotEditable,
     parse_start,
     parse_steps,
 )
 from frontend_nicegui.form_view import TYPING_DELAY_MS, render_component_form
 from frontend_nicegui.forms import has_form
 from frontend_nicegui.markers import slug
-from frontend_nicegui.names import component_label, display_name, fix_label, group_label, template_label
+from frontend_nicegui.names import (
+    EDIT_PROBLEM_TEXTS,
+    component_label,
+    display_name,
+    fix_label,
+    group_label,
+    template_label,
+)
 from frontend_nicegui.page_state import PageState
 from frontend_nicegui.result_tabs import render_result_tabs
 from frontend_nicegui.result_terms import bus_label
@@ -59,6 +67,7 @@ from frontend_nicegui.result_view import (
     solver_label,
     solver_text,
 )
+from frontend_nicegui.scenario_file import MEDIA_TYPE, file_name_for, scenario_bytes
 from frontend_nicegui.scenario_view import component_rows, describe_period, series_rows
 from frontend_nicegui.series_bulk_view import render_bulk
 from frontend_nicegui.status import COLORS, ICONS, badge_of, draft_status, run_hint, status_text
@@ -397,6 +406,12 @@ def home_page():
                 f'setTimeout(() => document.getElementById("{anchor.html_id}")?.scrollIntoView('
                 '{behavior: "smooth", block: "start"}), 150)')
 
+    def save_scenario():
+        """Give the scenario that is being built to the visitor as a file (the server keeps nothing)."""
+
+        scenario = state.draft.scenario(tr_default_name())
+        ui.download.content(scenario_bytes(scenario), file_name_for(scenario.name), MEDIA_TYPE)
+
     def update_chrome(findings):
         """Tell the top bar and the badge of the Check tab what the check found."""
 
@@ -437,6 +452,12 @@ def home_page():
 
         ui.button(tr("header.series"), icon="upload_file", on_click=go_to_series_file).props("flat no-caps dense").mark(
             "header-series").tooltip(tr("header.series_hint"))
+
+        chosen = len(state.draft) > 0
+        save = ui.button(tr("header.save"), icon="download", on_click=save_scenario).props("flat no-caps dense").mark(
+            "header-save")
+        save.set_enabled(chosen)
+        save.tooltip(tr("header.save_hint") if chosen else tr("header.save_empty"))
 
         chip = ui.button(text(), icon=ICONS[status.kind], on_click=lambda: show_view("check")).props(
             f"outline no-caps dense color={COLORS[status.kind]}").mark("status")
@@ -820,6 +841,61 @@ def home_page():
                 max_files=1,
             ).props("accept=.json flat bordered").classes("w-full").mark("upload")
 
+    async def edit_opened():
+        """Take the opened scenario into the draft. What is being built is replaced, so the visitor is asked first
+        if there is something."""
+
+        if state.opened is None or state.running:
+            return
+        tr = state.tr
+
+        if len(state.draft) > 0:
+            with ui.dialog() as dialog, ui.card().mark("open-edit-dialog"):
+                ui.label(tr("open.edit.confirm_title")).classes("text-lg font-semibold")
+                ui.label(tr.plural("open.edit.confirm_text", len(state.draft)))
+                with ui.row().classes("w-full justify-end gap-2"):
+                    ui.button(tr("open.edit.cancel"), on_click=lambda: dialog.submit(False)).props(
+                        "flat no-caps").mark("open-edit-cancel")
+                    ui.button(tr("open.edit.confirm"), on_click=lambda: dialog.submit(True)).props(
+                        "no-caps color=primary").mark("open-edit-confirm")
+            dialog.open()
+            replace = await dialog
+            dialog.delete()
+            if not replace:
+                return
+
+        name = state.opened.scenario.name
+        try:
+            state.edit_opened()
+        except NotEditable:
+            details.refresh()
+            return
+
+        state.view = "system"
+        content.refresh()               # the period and the components are drawn from the draft again
+        settings.refresh()
+        header_left.refresh()
+        header_status.refresh()
+        ui.notify(tr("open.edit.done", name=name))
+
+    def edit_row(can_run):
+        """Under an opened file: a button that takes it into the draft, or the reason why that is not possible (and,
+        if it is true, that the file can still be run as it is)."""
+
+        tr = state.tr
+        problem = state.edit_problem()
+
+        with ui.row().classes("items-center gap-3"):
+            if problem is None:
+                ui.button(tr("open.edit.button"), icon="edit", on_click=edit_opened).props("outline no-caps").mark(
+                    "open-edit")
+                ui.label(tr("open.edit.hint")).classes("text-grey text-sm")
+            else:
+                detail = component_label(tr, problem.detail) if problem.reason == "many" else problem.detail
+                text = tr("open.edit.cannot", reason=tr(EDIT_PROBLEM_TEXTS[problem.reason], detail=detail))
+                ui.label(f"{text} {tr('open.edit.run_instead')}" if can_run else text).classes("text-grey").mark(
+                    "open-edit-problem")
+
     @ui.refreshable
     def details():
         tr = state.tr
@@ -850,8 +926,10 @@ def home_page():
 
         findings = service_v2.check(scenario)
         show_findings(findings, tr)
+        can_run = not any(f.level == "error" for f in findings)
+        edit_row(can_run)
 
-        if not any(f.level == "error" for f in findings):
+        if can_run:
             run_panel()
 
     # ----- the page --------------------------------------------------------

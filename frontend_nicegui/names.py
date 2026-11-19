@@ -41,3 +41,18 @@ def display_name(component, tr=ENGLISH):
     name = reference(component)
 
     return name.render(tr) if isinstance(name, ComponentRef) else name
+
+
+
+# the text for each reason that a scenario cannot be taken into the draft (see draft.EDIT_REASONS)
+EDIT_PROBLEM_TEXTS = {
+    "resolution": "open.edit.problem.resolution",
+    "start_time": "open.edit.problem.start_time",
+    "period": "open.edit.problem.period",
+    "constraints": "open.edit.problem.constraints",
+    "carriers": "open.edit.problem.carriers",
+    "no_template": "open.edit.problem.no_template",
+    "many": "open.edit.problem.many",
+    "own_id": "open.edit.problem.own_id",
+    "unused_series": "open.edit.problem.unused_series",
+}

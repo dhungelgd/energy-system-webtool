@@ -18,7 +18,7 @@ from datetime import date, datetime, time
 from backend import service_v2
 from backend.blocks import get_path, put_path
 from backend.component_specs import INFO
-from backend.scenario_v2 import ScenarioV2
+from backend.scenario_v2 import BUILT_IN_CARRIERS, ScenarioV2
 from backend.series_input import slot_of
 from backend.system_templates import SYSTEM_TEMPLATES, in_order
 from backend.templates import carriers_for, new_component
@@ -34,6 +34,24 @@ DEFAULT_START = ScenarioV2().time.start.date()
 
 STEPS_HINT = f"Enter a whole number from {MIN_STEPS} to {MAX_STEPS:,}."
 START_HINT = f"Use the format YYYY-MM-DD (for example 2021-01-01), in the years {MIN_YEAR} to {MAX_YEAR}."
+
+
+# why a scenario cannot be held by a draft (every one has a text for the user: names.EDIT_PROBLEM_TEXTS)
+EDIT_REASONS = ("resolution", "start_time", "period", "constraints", "carriers", "no_template", "many", "own_id",
+                "unused_series")
+
+
+class NotEditable(ValueError):
+    """A scenario that the draft cannot hold. `reason` says why (one of EDIT_REASONS, for the text that explains it
+    to the user) and `detail` names what it is about: a component (its name, or for 'many' the key of the kind that
+    is there twice), the carriers ..."""
+
+    def __init__(self, reason, detail=""):
+        if reason not in EDIT_REASONS:
+            raise ValueError(f"unknown reason '{reason}'")
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
 
 
 def parse_steps(value):
@@ -80,6 +98,63 @@ class ScenarioDraft:
         self.name = name
         self.start = start
         self.steps = steps
+
+    @classmethod
+    def from_scenario(cls, scenario):
+        """A draft that holds exactly this scenario (components with their settings, the time series, the period).
+
+        The draft holds one component of each kind, whole days as a start, hourly steps and the built-in energy
+        carriers. A scenario that needs more than that (two PV systems, a carrier of its own, extra constraints, a
+        time series that no component uses) is refused with NotEditable, and nothing is changed: it could not be
+        shown without losing something. The solver settings are not part of a draft.
+        """
+
+        time_settings = scenario.time
+        if time_settings.resolution != "1h":
+            raise NotEditable("resolution", time_settings.resolution)
+        if time_settings.start.time() != time.min:
+            raise NotEditable("start_time")
+        try:
+            draft = cls(name=scenario.name, start=time_settings.start.date(), steps=time_settings.steps)
+        except ValueError:
+            raise NotEditable("period") from None
+
+        if scenario.constraints:
+            raise NotEditable("constraints")
+        strange = [c.id for c in scenario.carriers if c.custom or c.id not in BUILT_IN_CARRIERS]
+        if strange:
+            raise NotEditable("carriers", ", ".join(strange))
+
+        kinds = [component.template for component in scenario.components]
+        for component in scenario.components:
+            if component.template is None or component.template not in INFO:
+                raise NotEditable("no_template", component.name)
+            if kinds.count(component.template) > 1:                # said before the id: that is what the user can follow
+                raise NotEditable("many", component.template)
+            if component.id != component.template:
+                raise NotEditable("own_id", component.name)
+            draft._components[component.template] = component.model_copy(deep=True)
+
+        used = set()
+        for key, component in draft._components.items():
+            slot = slot_of(component)
+            series_id = None if slot is None else get_path(component.blocks.get(slot.block, {}), slot.field)
+            if series_id is not None:
+                used.add(series_id)
+                draft.set_series(key, scenario.series[series_id].model_copy(deep=True))
+
+        unused = sorted(set(scenario.series) - used)
+        if unused:
+            raise NotEditable("unused_series", ", ".join(unused))
+
+        return draft
+
+    def replace_with(self, other):
+        """Become the other draft (its name, period, components and series), in place: whoever holds this draft
+        sees the new one."""
+
+        self._name, self._start, self._steps = other._name, other._start, other._steps
+        self._components, self._series, self._constants = other._components, other._series, other._constants
 
     # ----- name and period -------------------------------------------------
 

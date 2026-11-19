@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from backend import service_v2
 from backend.i18n import DEFAULT_LANGUAGE, LANGUAGES, Translator
-from frontend_nicegui.draft import DEFAULT_NAME, ScenarioDraft
+from frontend_nicegui.draft import DEFAULT_NAME, NotEditable, ScenarioDraft
 from frontend_nicegui.scenario_view import ScenarioFileError, load_scenario
 
 
@@ -108,6 +108,40 @@ class PageState:
         else:
             self.opened = OpenedFile(scenario, file_name)
             self.file_error = None
+
+    def edit_problem(self):
+        """Why the opened scenario cannot be taken into the draft (a NotEditable), or None if it can (or none is open)."""
+
+        if self.opened is None:
+            return None
+
+        try:
+            ScenarioDraft.from_scenario(self.opened.scenario)
+        except NotEditable as problem:
+            return problem
+
+        return None
+
+    def edit_opened(self):
+        """Take the opened scenario into the draft: it replaces what was being built, and the opened file is closed
+        (the draft is where it goes on). Gives False and changes nothing if no file is open or a run is going on;
+        NotEditable if the draft cannot hold it."""
+
+        if self.opened is None or self.running:
+            return False
+
+        self.draft.replace_with(ScenarioDraft.from_scenario(self.opened.scenario))
+        self.uploads.clear()
+        self.series_wanted.clear()
+        self.bulk_done = None
+        self.draft_run = None             # the result of the old system does not belong to this one
+        self.selected = None
+        self.opened = None
+        self.result = None
+        self.run_error = None
+        self.file_error = None
+
+        return True
 
     # ----- how long the run has been going on ------------------------------
 
