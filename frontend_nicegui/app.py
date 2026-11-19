@@ -67,7 +67,7 @@ from frontend_nicegui.result_view import (
     solver_label,
     solver_text,
 )
-from frontend_nicegui.scenario_file import MEDIA_TYPE, file_name_for, scenario_bytes
+from frontend_nicegui.scenario_file import MEDIA_TYPE, file_name_for, report_file_name, scenario_bytes
 from frontend_nicegui.scenario_view import component_rows, describe_period, series_rows
 from frontend_nicegui.series_bulk_view import render_bulk
 from frontend_nicegui.status import COLORS, ICONS, badge_of, draft_status, run_hint, status_text
@@ -171,9 +171,36 @@ def show_chosen(result, tr, key):
                 "text-grey text-sm").mark(f"{key}-not-built")
 
 
-def show_result(result, tr, key="file"):
+def report_button(scenario, result, tr, key):
+    """The button that gives the result as a PDF report. The report is made in a thread (the charts of a year take a
+    few seconds), and the button shows that it is working. It reports the scenario that was run, with its result."""
+
+    async def click():
+        button.props("loading")
+        button.disable()
+        try:
+            from frontend_nicegui.report_pdf import build_pdf          # here, so that the page works without the library
+
+            pdf = await run.io_bound(build_pdf, scenario, result, tr)
+        except Exception:  # noqa: BLE001 - the page must stay alive whatever happens
+            logger.exception("The report could not be created")
+            ui.notify(tr("result.report.failed"), type="negative")
+            return
+        finally:
+            button.props(remove="loading")
+            button.enable()
+
+        ui.download.content(pdf, report_file_name(scenario.name, tr.language), "application/pdf")
+
+    button = ui.button(tr("result.report.button"), icon="picture_as_pdf", on_click=click).props("outline no-caps").mark(
+        f"{key}-report")
+
+    return button
+
+
+def show_result(result, tr, key="file", scenario=None):
     """A result: the optimised system, the headline figures, the note for a period shorter than a year, the
-    solver, and the tabs.
+    solver, and the tabs. With the scenario that was run, there is a button for the report as a PDF.
 
     `key` ('draft' or 'file') makes the markers of two results on a page different.
     """
@@ -193,6 +220,8 @@ def show_result(result, tr, key="file"):
         ui.label(caption).classes("text-grey text-sm").mark(f"{key}-period-note")
 
     ui.label(solver_text(result, tr)).classes("text-grey").mark("solver")
+    if scenario is not None:
+        report_button(scenario, result, tr, key)
 
     render_result_tabs(result, tr, key)
 
@@ -516,7 +545,7 @@ def home_page():
                     with ui.row().classes("items-start gap-2 no-wrap"):
                         ui.icon("warning", color="warning")
                         ui.label(tr("run.outdated")).mark("draft-outdated")
-                show_result(run.result, tr, "draft")
+                show_result(run.result, tr, "draft", run.scenario)
 
     def sync_results():
         """Draw the results again only if what they show has changed (the draft was changed since the run)."""
@@ -800,7 +829,7 @@ def home_page():
             if state.run_error is not None:
                 ui.label(tr.message(state.run_error)).classes("text-negative").mark("run-error")
             elif state.result is not None:
-                show_result(state.result, tr)
+                show_result(state.result, tr, scenario=state.opened.scenario if state.opened is not None else None)
 
     async def start():
         started = state.start_run()

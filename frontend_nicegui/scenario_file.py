@@ -27,3 +27,11 @@ def file_name_for(name):
     words = re.sub(r"[^a-z0-9-]+", "_", plain.lower()).strip("_-")[:MAX_FILE_NAME_LENGTH].strip("_-")
 
     return f"{words or DEFAULT_FILE_NAME}.json"
+
+
+def report_file_name(name, language):
+    """The file name of the PDF report of a scenario: 'my_pv_system_report.pdf', in German 'my_pv_system_bericht.pdf'."""
+
+    word = "bericht" if language == "de" else "report"
+
+    return f"{file_name_for(name).removesuffix('.json')}_{word}.pdf"

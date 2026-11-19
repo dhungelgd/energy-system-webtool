@@ -7,7 +7,13 @@ import pytest
 from backend.scenario_v2 import ScenarioV2, SeriesData
 from backend.series_input import slot_of
 from frontend_nicegui.draft import ScenarioDraft
-from frontend_nicegui.scenario_file import DEFAULT_FILE_NAME, MAX_FILE_NAME_LENGTH, file_name_for, scenario_bytes
+from frontend_nicegui.scenario_file import (
+    DEFAULT_FILE_NAME,
+    MAX_FILE_NAME_LENGTH,
+    file_name_for,
+    report_file_name,
+    scenario_bytes,
+)
 from tests.test_draft_from_scenario import full_draft
 
 
@@ -72,3 +78,20 @@ def test_a_year_of_series_is_light_enough_to_download():
             draft.set_series(component.id, SeriesData(values=[0.123456789 * (i % 97) for i in range(8760)]))
 
     assert len(scenario_bytes(draft.scenario())) < 1_500_000
+
+
+@pytest.mark.parametrize("name, language, expected", [
+    ("My PV system", "en", "my_pv_system_report.pdf"),
+    ("Mein Betrieb, Größe 5", "de", "mein_betrieb_grosse_5_bericht.pdf"),
+    ("", "en", "scenario_report.pdf"),
+    ("???", "de", "scenario_bericht.pdf"),
+    ("../../x", "en", "x_report.pdf"),
+])
+def test_the_report_is_named_after_the_scenario_with_a_word_in_the_language_of_the_reader(name, language, expected):
+    assert report_file_name(name, language) == expected
+
+
+def test_the_file_name_of_a_report_is_a_pdf_and_has_one_dot_only():
+    result = report_file_name("name.with.dots " + "x" * 80, "en")
+
+    assert result.endswith(".pdf") and result.count(".") == 1 and len(result) <= MAX_FILE_NAME_LENGTH + len("_report.pdf")
