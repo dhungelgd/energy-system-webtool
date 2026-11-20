@@ -10,6 +10,7 @@ link (?lang=de), else from the browser, else English.
 """
 
 import logging
+from pathlib import Path
 
 from nicegui import events, run, ui
 
@@ -18,7 +19,7 @@ from backend.findings import finding_text
 from backend.i18n import LANGUAGES, Msg, choose_language
 from backend.service import ScenarioError
 from backend.system_templates import SYSTEM_TEMPLATES, components_by_group
-from frontend_nicegui import result_excel
+from frontend_nicegui.areas import AREAS, START, is_area, start_area
 from frontend_nicegui.board import (
     BOARD,
     COLUMN_TEXTS,
@@ -56,6 +57,7 @@ from frontend_nicegui.names import (
     group_label,
     template_label,
 )
+from frontend_nicegui import result_excel
 from frontend_nicegui.page_state import PageState
 from frontend_nicegui.result_tabs import render_result_tabs
 from frontend_nicegui.result_terms import bus_label
@@ -81,6 +83,9 @@ from frontend_nicegui.series_bulk_view import render_bulk
 from frontend_nicegui.status import COLORS, ICONS, badge_of, draft_status, run_hint, status_text
 
 TITLE = "Energy System Web Tool"
+
+OPTIMIZATION = "optimization"       # the area that has the side sheet and the buttons of the top bar
+EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "scenarios_v2" / "pv_and_grid.json"   # for the start page
 
 NO_COMPONENT = "none"               # the panel of the drawer when no component is open
 STATE_ICONS = {"ok": ("check_circle", "positive"), "warning": ("warning", "warning"), "error": ("error", "negative")}
@@ -317,6 +322,7 @@ def show_findings(findings, tr, title_key="findings.title", marker="findings", o
 def home_page():
     request = ui.context.client.request
     state = PageState(choose_language(request.query_params.get("lang"), request.headers.get("accept-language")))
+    state.area = start_area(request.query_params.get("area"))      # the address, else the setting of the server, else the start
     boxes = {}                      # the checkboxes of the page that is drawn now
     shown = {"results": None}       # what the block of the results of the draft shows now (see sync_results)
     chrome = {"findings": (0, 0), "list": [], "tabs": None, "badge": None, "panels": None, "sheet": None,
@@ -497,14 +503,18 @@ def home_page():
 
         ui.icon("bolt", color="primary").classes("text-3xl")
         ui.label(tr("app.title")).classes("text-lg font-bold").mark("app-title")
-        ui.input(
-            tr("scenario.name"), value=state.draft.name, placeholder=tr("scenario.default_name"), on_change=set_name,
-        ).props(f"outlined dense maxlength={MAX_NAME_LENGTH} debounce={TYPING_DELAY_MS}").classes(
-            "w-72 ml-4").mark("draft-name")
+        if state.area == OPTIMIZATION:
+            ui.input(
+                tr("scenario.name"), value=state.draft.name, placeholder=tr("scenario.default_name"), on_change=set_name,
+            ).props(f"outlined dense maxlength={MAX_NAME_LENGTH} debounce={TYPING_DELAY_MS}").classes(
+                "w-72 ml-4").mark("draft-name")
 
     @ui.refreshable
     def header_status():
         """The status chip (it opens the check), the spinner while a run goes on, and the Run button."""
+
+        if state.area != OPTIMIZATION:
+            return                  # the buttons of the top bar are those of the optimization
 
         tr = state.tr
         status = current_status()
@@ -904,8 +914,14 @@ def home_page():
             ).props("accept=.json flat bordered").classes("w-full").mark("upload")
 
     async def edit_opened():
+        """The button under an opened file: take the scenario into the draft (see take_opened)."""
+
+        await take_opened()
+
+    async def take_opened(area=None):
         """Take the opened scenario into the draft. What is being built is replaced, so the visitor is asked first
-        if there is something."""
+        if there is something. With an `area`, the page goes there once the scenario is taken in: the question is
+        asked first, where the visitor is (an element that was drawn again could not show it)."""
 
         if state.opened is None or state.running:
             return
@@ -934,6 +950,8 @@ def home_page():
             return
 
         state.view = "system"
+        if area is not None:
+            state.area = area
         content.refresh()               # the period and the components are drawn from the draft again
         settings.refresh()
         header_left.refresh()
@@ -1017,11 +1035,86 @@ def home_page():
         open_card()
         details()
 
+    def show_area(key):
+        """Go to the start page or to an area. What was built or loaded stays: it belongs to the project, not to the area."""
+
+        if key == state.area or not is_area(key):
+            return
+
+        state.area = key
+        if key != OPTIMIZATION:
+            select(None)            # the side sheet belongs to the optimization
+        content.refresh()
+        header_left.refresh()
+        header_status.refresh()
+
+    async def open_example():
+        """From the start page: take the example into the scenario and go to the optimization. If something was built, the
+        visitor is asked first (the same question as for a file that is opened)."""
+
+        tr = state.tr
+        try:
+            content_of_file = EXAMPLE.read_bytes()
+        except OSError:
+            logger.exception("The example could not be read")
+            ui.notify(tr("start.example.failed"), type="negative")
+            return
+
+        state.open_file(content_of_file, EXAMPLE.name)
+        if state.opened is None:
+            ui.notify(tr("start.example.failed"), type="negative")
+            return
+
+        await take_opened(area=OPTIMIZATION)
+        if state.opened is not None:                # the visitor said no: the example is not left open
+            state.opened = None
+            details.refresh()
+
+    def area_bar():
+        """The bar of the areas, above everything: the start page and one key for each area."""
+
+        tr = state.tr
+
+        with ui.tabs(value=state.area, on_change=lambda event: show_area(event.value)).classes("w-full").mark("area-bar"):
+            ui.tab(START, tr("area.start")).mark(f"area-{START}")
+            for area in AREAS:
+                ui.tab(area.key, tr(area.label)).mark(f"area-{area.key}")
+
+    def start_card(marker, icon, title, text, button, on_click):
+        with ui.card().props("flat bordered").classes("flex-1 gap-3 q-pa-lg").style("min-width: 18rem").mark(
+                f"start-card-{marker}"):
+            ui.icon(icon, color="primary").classes("text-4xl")
+            ui.label(title).classes("text-h6 text-weight-bold")
+            ui.label(text).classes("text-grey-8")
+            ui.space()
+            ui.button(button, on_click=on_click).props("no-caps outline color=primary").mark(f"start-{marker}")
+
+    def start_view():
+        """The start page: one card for each area, and the example."""
+
+        tr = state.tr
+
+        ui.label(tr("start.title")).classes("text-h4 text-weight-bold").mark("start-title")
+        ui.label(tr("start.intro")).classes("text-grey-8").mark("start-intro")
+
+        with ui.row().classes("w-full gap-6 items-stretch"):
+            for area in AREAS:
+                has_work = area.key == OPTIMIZATION and len(state.draft) > 0       # the optimization has a scenario
+                start_card(area.key, area.icon, tr(area.title), tr(area.text), tr(area.resume if has_work else area.button),
+                           lambda _, key=area.key: show_area(key))
+            start_card("example", "menu_book", tr("start.example.title"), tr("start.example.text"),
+                       tr("start.example.button"), open_example)
+
     @ui.refreshable
     def content():
         tr = state.tr
 
         with ui.column().classes("w-full max-w-7xl mx-auto p-6 gap-4"):
+            area_bar()
+            if state.area == START:
+                start_view()
+                return
+
             with ui.tabs(value=state.view, on_change=lambda event: setattr(state, "view", event.value)).classes(
                     "w-full").mark("views") as tabs:
                 ui.tab("system", tr("view.system")).mark("view-system")

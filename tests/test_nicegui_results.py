@@ -122,8 +122,9 @@ async def test_a_result_has_a_tab_for_each_energy_carrier_the_costs_and_the_capa
         "Electricity", "Heat", "Gas", "Costs", "Capacities"]
     with user.client:
         labels = [e.props["label"] for e in ElementFilter(kind=ui.tab)]
-    # the three views of the page have tabs, and each of the three carriers has five tabs inside its tab
-    assert labels.count("Electricity") == labels.count("Costs") == 1 and len(labels) == 3 + 5 + 3 * 5
+    # the bar of the areas has two tabs (start and optimization), the three views of the page have tabs, and each
+    # of the three carriers has five tabs inside its tab
+    assert labels.count("Electricity") == labels.count("Costs") == 1 and len(labels) == 2 + 3 + 5 + 3 * 5
 
 
 async def test_the_tabs_are_in_german(user: User, monkeypatch):

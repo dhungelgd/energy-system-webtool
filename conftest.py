@@ -25,3 +25,12 @@ def pytest_collection_modifyitems(items):
             f"The name of a test is longer than {MAX_TEST_NAME_LENGTH} characters (a big value as a parameter?). "
             f"Give it a short id with pytest.param(..., id='...'): " + "; ".join(too_long)
         )
+
+
+@pytest.fixture(autouse=True)
+def the_page_tests_open_in_the_optimization(monkeypatch):
+    """The page opens on its start page. The page tests that were written before the start page existed begin in the
+    optimization, so they say so with the setting that a server has for it. A test of the start page names it in the
+    address (?area=start), which wins over this setting."""
+
+    monkeypatch.setenv("WEBTOOL_START_AREA", "optimization")

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from backend import service_v2
 from backend.i18n import DEFAULT_LANGUAGE, LANGUAGES, Translator
+from frontend_nicegui import areas
 from frontend_nicegui.draft import DEFAULT_NAME, NotEditable, ScenarioDraft
 from frontend_nicegui.scenario_view import ScenarioFileError, load_scenario
 
@@ -57,9 +58,22 @@ class PageState:
         self.run_started = None       # the time on the clock when the run that is going on started
         self.draft_run = None         # a DraftRun: the last run of the scenario that is being built
         self.language_toggle = None   # the page puts its language switch here, to block it during a run
-        self.view = "system"          # the view that is shown: "system", "check" or "results"
+        self.view = "system"  # the view that is shown in the optimization: "system", "check" or "results"
+        self._area = areas.START  # where the page is: the start page or an area (see areas.py)
         self.selected = None          # the component that is open in the drawer (its key), or None
         self.language = language
+
+    # ----- where the page is -------------------------------------------------
+
+    @property
+    def area(self):
+        return self._area
+
+    @area.setter
+    def area(self, value):
+        if not areas.is_area(value):
+            raise ValueError(f"unknown area '{value}'")
+        self._area = value
 
     # ----- the language ----------------------------------------------------
 
