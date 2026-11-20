@@ -18,6 +18,7 @@ from backend.findings import finding_text
 from backend.i18n import LANGUAGES, Msg, choose_language
 from backend.service import ScenarioError
 from backend.system_templates import SYSTEM_TEMPLATES, components_by_group
+from frontend_nicegui import result_excel
 from frontend_nicegui.board import (
     BOARD,
     COLUMN_TEXTS,
@@ -67,7 +68,14 @@ from frontend_nicegui.result_view import (
     solver_label,
     solver_text,
 )
-from frontend_nicegui.scenario_file import MEDIA_TYPE, file_name_for, report_file_name, scenario_bytes
+from frontend_nicegui.scenario_file import (
+    EXCEL_MEDIA_TYPE,
+    MEDIA_TYPE,
+    excel_file_name,
+    file_name_for,
+    report_file_name,
+    scenario_bytes,
+)
 from frontend_nicegui.scenario_view import component_rows, describe_period, series_rows
 from frontend_nicegui.series_bulk_view import render_bulk
 from frontend_nicegui.status import COLORS, ICONS, badge_of, draft_status, run_hint, status_text
@@ -171,36 +179,59 @@ def show_chosen(result, tr, key):
                 "text-grey text-sm").mark(f"{key}-not-built")
 
 
-def report_button(scenario, result, tr, key):
-    """The button that gives the result as a PDF report. The report is made in a thread (the charts of a year take a
-    few seconds), and the button shows that it is working. It reports the scenario that was run, with its result."""
+def download_button(label, icon, marker, make, file_name, media_type, failed, problem):
+    """A button that gives a file to the visitor. The file is made in a thread by `make` (an async function that gives
+    the bytes: the charts of a year take a few seconds), and the button shows that it is working. If it fails, the visitor
+    is told (`failed`) and the page goes on; the details are logged for the developers (`problem`)."""
 
     async def click():
         button.props("loading")
         button.disable()
         try:
-            from frontend_nicegui.report_pdf import build_pdf          # here, so that the page works without the library
-
-            pdf = await run.io_bound(build_pdf, scenario, result, tr)
+            content = await make()
         except Exception:  # noqa: BLE001 - the page must stay alive whatever happens
-            logger.exception("The report could not be created")
-            ui.notify(tr("result.report.failed"), type="negative")
+            logger.exception(problem)
+            ui.notify(failed, type="negative")
             return
         finally:
             button.props(remove="loading")
             button.enable()
 
-        ui.download.content(pdf, report_file_name(scenario.name, tr.language), "application/pdf")
+        ui.download.content(content, file_name, media_type)
 
-    button = ui.button(tr("result.report.button"), icon="picture_as_pdf", on_click=click).props("outline no-caps").mark(
-        f"{key}-report")
+    button = ui.button(label, icon=icon, on_click=click).props("outline no-caps").mark(marker)
 
     return button
 
 
+def report_button(scenario, result, tr, key):
+    """The button that gives the result as a PDF report. It reports the scenario that was run, with its result."""
+
+    async def make():
+        from frontend_nicegui.report_pdf import build_pdf          # here, so that the page works without the library
+
+        return await run.io_bound(build_pdf, scenario, result, tr)
+
+    return download_button(
+        tr("result.report.button"), "picture_as_pdf", f"{key}-report", make, report_file_name(scenario.name, tr.language),
+        "application/pdf", tr("result.report.failed"), "The report could not be created")
+
+
+def excel_button(scenario, result, tr, key):
+    """The button that gives the numbers of the result as an Excel file (the hourly values too)."""
+
+    async def make():
+        return await run.io_bound(result_excel.build_workbook, scenario, result, tr)
+
+    return download_button(
+        tr("result.excel.button"), "table_view", f"{key}-excel", make, excel_file_name(scenario.name, tr.language),
+        EXCEL_MEDIA_TYPE, tr("result.excel.failed"), "The Excel file could not be created")
+
+
 def show_result(result, tr, key="file", scenario=None):
     """A result: the optimised system, the headline figures, the note for a period shorter than a year, the
-    solver, and the tabs. With the scenario that was run, there is a button for the report as a PDF.
+    solver, and the tabs. With the scenario that was run, there are buttons for the report as a PDF and for the
+    numbers as an Excel file.
 
     `key` ('draft' or 'file') makes the markers of two results on a page different.
     """
@@ -221,7 +252,9 @@ def show_result(result, tr, key="file", scenario=None):
 
     ui.label(solver_text(result, tr)).classes("text-grey").mark("solver")
     if scenario is not None:
-        report_button(scenario, result, tr, key)
+        with ui.row().classes("gap-2"):
+            report_button(scenario, result, tr, key)
+            excel_button(scenario, result, tr, key)
 
     render_result_tabs(result, tr, key)
 

@@ -35,3 +35,14 @@ def report_file_name(name, language):
     word = "bericht" if language == "de" else "report"
 
     return f"{file_name_for(name).removesuffix('.json')}_{word}.pdf"
+
+
+EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def excel_file_name(name, language):
+    """The file name of the Excel file of a result: 'my_plant_results.xlsx', in German 'my_plant_ergebnisse.xlsx'."""
+
+    word = "ergebnisse" if language == "de" else "results"
+
+    return f"{file_name_for(name).removesuffix('.json')}_{word}.xlsx"

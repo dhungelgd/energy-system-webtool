@@ -9,7 +9,9 @@ from backend.series_input import slot_of
 from frontend_nicegui.draft import ScenarioDraft
 from frontend_nicegui.scenario_file import (
     DEFAULT_FILE_NAME,
+    EXCEL_MEDIA_TYPE,
     MAX_FILE_NAME_LENGTH,
+    excel_file_name,
     file_name_for,
     report_file_name,
     scenario_bytes,
@@ -95,3 +97,21 @@ def test_the_file_name_of_a_report_is_a_pdf_and_has_one_dot_only():
     result = report_file_name("name.with.dots " + "x" * 80, "en")
 
     assert result.endswith(".pdf") and result.count(".") == 1 and len(result) <= MAX_FILE_NAME_LENGTH + len("_report.pdf")
+
+
+@pytest.mark.parametrize("name, language, expected", [
+    ("My PV system", "en", "my_pv_system_results.xlsx"),
+    ("Mein Betrieb, Größe 5", "de", "mein_betrieb_grosse_5_ergebnisse.xlsx"),
+    ("", "en", "scenario_results.xlsx"),
+    ("???", "de", "scenario_ergebnisse.xlsx"),
+    ("../../x", "en", "x_results.xlsx"),
+])
+def test_the_excel_file_is_named_after_the_scenario_with_a_word_in_the_language_of_the_reader(name, language, expected):
+    assert excel_file_name(name, language) == expected
+
+
+def test_the_file_name_of_an_excel_file_has_one_dot_only_and_the_media_type_is_that_of_a_workbook():
+    result = excel_file_name("name.with.dots " + "x" * 80, "de")
+
+    assert result.endswith(".xlsx") and result.count(".") == 1 and len(result) <= MAX_FILE_NAME_LENGTH + len("_ergebnisse.xlsx")
+    assert EXCEL_MEDIA_TYPE == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
