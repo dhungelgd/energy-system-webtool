@@ -46,6 +46,8 @@ class PageState:
         self.uploads = {}             # component key -> the UploadSession of a file that is being prepared
         self.series_wanted = set()    # components switched to "time series" that have none yet
         self.bulk = None              # the BulkSession of a file with all the series that is being prepared
+        self.profile = None           # the ProfileSession of the load profile file (the project's load profile)
+        self.profile_reading = False  # the file of the load profile is being read now
         self.bulk_done = None         # (how many series, from which file) after the last file was used
         self.bulk_card = None         # the card for the file with all the series (a refreshable), once it is drawn
         self.opened = None            # an OpenedFile

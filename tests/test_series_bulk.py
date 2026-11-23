@@ -6,9 +6,10 @@ from datetime import datetime, timedelta
 import pytest
 from openpyxl import Workbook
 
+from backend.column_names import PRIORITY, RULES, compact, fits, kind_of
 from backend.timeseries_import import TimeSeriesFileError
 from frontend_nicegui.draft import ScenarioDraft
-from frontend_nicegui.series_bulk import ADD_ORDER, PRIORITY, RULES, BulkSession, FilePeriod, compact, fits, guess, kind_of
+from frontend_nicegui.series_bulk import ADD_ORDER, BulkSession, FilePeriod, guess
 from frontend_nicegui.series_session import START_SCENARIO
 
 
@@ -592,6 +593,14 @@ def test_with_something_taken_over_and_something_pending_the_pending_ones_decide
     session.master.aggregate = "mean"
     session.apply(draft, components)
 
-    session.master.aggregate = None
+    session.master.aggregate = None                                        # the answer is taken back: both are pending, one cannot be made
 
     assert sorted(session.pending(components, draft)) == ["demand", "pv"] and not session.usable(components, draft)
+
+
+def test_the_names_of_the_columns_are_the_rules_of_the_backend_that_the_reading_of_a_load_profile_uses_too():
+    from backend import column_names, load_profile
+    from frontend_nicegui import series_bulk
+
+    assert series_bulk.kind_of is column_names.kind_of and series_bulk.fits is column_names.fits
+    assert load_profile.kind_of is column_names.kind_of and column_names.RULES is RULES

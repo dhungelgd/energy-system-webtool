@@ -13,16 +13,16 @@ CATALOGS = Path(__file__).resolve().parent.parent / "backend" / "i18n"
 
 
 def test_the_start_page_comes_first_and_then_the_areas_in_the_order_of_the_list():
-    assert keys() == ["start", "optimization"] and START == "start"
+    assert keys() == ["start", "profile", "optimization"] and START == "start"
 
 
 def test_the_start_page_and_each_area_are_places_and_nothing_else_is():
     assert all(is_area(key) for key in keys())
-    assert not any(is_area(value) for value in ("", None, "Start", "optimisation", "profile", "start ", 3))
+    assert not any(is_area(value) for value in ("", None, "Start", "optimisation", "Profile", "energy", "start ", 3))
 
 
 def test_an_area_is_found_by_its_key_and_the_start_page_is_not_one():
-    assert area_of("optimization") is AREAS[0] and isinstance(AREAS[0], Area)
+    assert area_of("profile") is AREAS[0] and area_of("optimization") is AREAS[1] and isinstance(AREAS[0], Area)
     with pytest.raises(StopIteration):
         area_of("start")
 
@@ -30,6 +30,8 @@ def test_an_area_is_found_by_its_key_and_the_start_page_is_not_one():
 @pytest.mark.parametrize("query, environ, expected", [
     (None, {}, "start"),                                                # nothing says: the start page
     ("optimization", {}, "optimization"),                               # the address
+    ("profile", {}, "profile"),
+    (None, {START_ENV: "profile"}, "profile"),
     (None, {START_ENV: "optimization"}, "optimization"),                # the setting of the server
     ("start", {START_ENV: "optimization"}, "start"),                    # the address wins over the setting
     ("optimization", {START_ENV: "start"}, "optimization"),
@@ -63,6 +65,10 @@ def test_every_text_of_an_area_is_in_the_catalog_of_each_language(language):
             assert key in catalog, key
 
 
+def test_the_load_profile_is_the_recommended_place_to_begin_and_it_is_the_only_one():
+    assert [area.key for area in AREAS if area.recommended] == ["profile"]
+
+
 def test_every_area_has_its_own_key_label_and_a_name_that_works_in_an_address():
     assert len({area.key for area in AREAS}) == len(AREAS) and len({area.label for area in AREAS}) == len(AREAS)
     assert all(area.key.isidentifier() and area.key == area.key.lower() and area.key != START for area in AREAS)
@@ -84,8 +90,8 @@ def test_the_area_can_be_changed_to_any_place_and_to_nothing_else():
         state.area = key
         assert state.area == key
 
-    with pytest.raises(ValueError, match="unknown area 'profile'"):
-        state.area = "profile"
+    with pytest.raises(ValueError, match="unknown area 'energy'"):
+        state.area = "energy"
 
     assert state.area == "optimization"                                 # a refused name changes nothing
 

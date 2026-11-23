@@ -59,6 +59,7 @@ from frontend_nicegui.names import (
 )
 from frontend_nicegui import result_excel
 from frontend_nicegui.page_state import PageState
+from frontend_nicegui.profile_view import make_profile_view
 from frontend_nicegui.result_tabs import render_result_tabs
 from frontend_nicegui.result_terms import bus_label
 from frontend_nicegui.result_view import (
@@ -85,6 +86,7 @@ from frontend_nicegui.status import COLORS, ICONS, badge_of, draft_status, run_h
 TITLE = "Energy System Web Tool"
 
 OPTIMIZATION = "optimization"       # the area that has the side sheet and the buttons of the top bar
+PROFILE = "profile"                 # the area of the load profile
 EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "scenarios_v2" / "pv_and_grid.json"   # for the start page
 
 NO_COMPONENT = "none"               # the panel of the drawer when no component is open
@@ -1080,14 +1082,18 @@ def home_page():
             for area in AREAS:
                 ui.tab(area.key, tr(area.label)).mark(f"area-{area.key}")
 
-    def start_card(marker, icon, title, text, button, on_click):
+    def start_card(marker, icon, title, text, button, on_click, recommended=False):
         with ui.card().props("flat bordered").classes("flex-1 gap-3 q-pa-lg").style("min-width: 18rem").mark(
                 f"start-card-{marker}"):
-            ui.icon(icon, color="primary").classes("text-4xl")
+            with ui.row().classes("w-full items-center justify-between no-wrap"):
+                ui.icon(icon, color="primary").classes("text-4xl")
+                if recommended:
+                    ui.badge(state.tr("start.recommended")).props("color=primary").mark(f"start-recommended-{marker}")
             ui.label(title).classes("text-h6 text-weight-bold")
             ui.label(text).classes("text-grey-8")
             ui.space()
-            ui.button(button, on_click=on_click).props("no-caps outline color=primary").mark(f"start-{marker}")
+            ui.button(button, on_click=on_click).props(
+                "no-caps color=primary" + ("" if recommended else " outline")).mark(f"start-{marker}")
 
     def start_view():
         """The start page: one card for each area, and the example."""
@@ -1099,11 +1105,15 @@ def home_page():
 
         with ui.row().classes("w-full gap-6 items-stretch"):
             for area in AREAS:
-                has_work = area.key == OPTIMIZATION and len(state.draft) > 0       # the optimization has a scenario
-                start_card(area.key, area.icon, tr(area.title), tr(area.text), tr(area.resume if has_work else area.button),
-                           lambda _, key=area.key: show_area(key))
+                has_work = (area.key == OPTIMIZATION and len(state.draft) > 0) or (  # a scenario, a load profile file
+                        area.key == PROFILE and state.profile is not None)
+                start_card(area.key, area.icon, tr(area.title), tr(area.text),
+                           tr(area.resume if has_work else area.button),
+                           lambda _, key=area.key: show_area(key), recommended=area.recommended)
             start_card("example", "menu_book", tr("start.example.title"), tr("start.example.text"),
                        tr("start.example.button"), open_example)
+
+    profile_view = make_profile_view(state)
 
     @ui.refreshable
     def content():
@@ -1113,6 +1123,9 @@ def home_page():
             area_bar()
             if state.area == START:
                 start_view()
+                return
+            if state.area == PROFILE:
+                profile_view()
                 return
 
             with ui.tabs(value=state.view, on_change=lambda event: setattr(state, "view", event.value)).classes(

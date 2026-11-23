@@ -316,6 +316,11 @@ def literal_keys_in_calls():
             # the code of a message about a file: TimeSeriesFileError("code", ...) or Notice("level", "code", ...)
             elif isinstance(function, ast.Name) and function.id == "TimeSeriesFileError" and literal(0):
                 keys.append((path.name, f"import.{literal(0)}"))
+            # the same for a load profile: ProfileFileError("code", ...) or ProfileNotice("level", "code", ...)
+            elif isinstance(function, ast.Name) and function.id == "ProfileFileError" and literal(0):
+                keys.append((path.name, f"profile.error.{literal(0)}"))
+            elif isinstance(function, ast.Name) and function.id == "ProfileNotice" and literal(1):
+                keys.append((path.name, f"profile.{literal(1)}"))
             elif isinstance(function, ast.Name) and function.id == "Notice" and literal(1):
                 keys.append((path.name, f"import.{literal(1)}"))
 

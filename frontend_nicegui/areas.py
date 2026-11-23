@@ -21,10 +21,13 @@ class Area:
     title: str                               # the texts of that card
     text: str
     button: str
-    resume: str                              # the text of the button if there is work in this area already
+    resume: str  # the text of the button if there is work in this area already
+    recommended: bool = False  # the card says that this is the place to begin
 
 
 AREAS = (
+    Area("profile", "area.profile", "show_chart", "start.profile.title", "start.profile.text",
+         "start.profile.button", "start.profile.continue", recommended=True),
     Area("optimization", "area.optimization", "tune", "start.optimization.title", "start.optimization.text",
          "start.optimization.button", "start.optimization.continue"),
 )

@@ -346,7 +346,20 @@ def _find_table(grid):
         cells = [c for c in grid[index] if not _is_blank(c)]
         return sum(_looks_like_data(c) for c in cells) / len(cells) if cells else 0.0
 
-    candidates = [i for i, c in enumerate(counts) if c == width]
+    # the table is the longest block of rows that are (nearly) full, with no empty line inside; lines above it, which
+    # have the same number of cells, are shorter
+    blocks, current = [], []
+    for i, c in enumerate(counts):
+        if c >= max(width - 1, 1):
+            current.append(i)
+        elif current:
+            blocks.append(current)
+            current = []
+    if current:
+        blocks.append(current)
+    block = max(blocks, key=len)
+    candidates = [i for i in block if counts[i] == width] or block
+
     first = next(
         (i for i in candidates if i + 1 < len(counts) and counts[i + 1] >= width - 1),
         candidates[0],
@@ -495,13 +508,31 @@ def _day_first(strings):
     return True
 
 
+# a time zone at the end of a text with a time: 2024-03-31T03:15:00+02:00, ...Z, ... +0200
+_ZONE_RE = re.compile(r"^(.*\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?)\s*(?:Z|[+\-]\d{2}:?\d{2})\s*$")
+
+# midnight written as the end of the day: 31.12.2024 24:00 (pandas does not read it)
+_MIDNIGHT_RE = re.compile(r"^(.*?)[ T]+24:00(?::00(?:[.,]0+)?)?\s*$")
+
+
+def _without_zone(value):
+    """A text without the time zone at its end: the wall clock time is what counts (a file that holds summer and winter
+    time has two zones in it, and the hour of the end of summer time then appears twice)."""
+
+    if not isinstance(value, str):
+        return value
+
+    found = _ZONE_RE.match(value.strip())
+
+    return found.group(1) if found else value
+
+
 def _parse_datetimes(values):
-    texts = [v.strip() for v in values if isinstance(v, str) and not _is_missing(v)]
+    cleaned = [None if _is_missing(v) else _without_zone(v) for v in values]
+    texts = [v.strip() for v in cleaned if isinstance(v, str)]
     day_first = _day_first(texts[:2000])
 
-    series = pd.Series(
-        [None if _is_missing(v) else v for v in values], dtype=object
-    )
+    series = pd.Series(cleaned, dtype=object)
 
     try:
         parsed = pd.to_datetime(series, dayfirst=day_first, errors="coerce", format="mixed")
@@ -510,6 +541,15 @@ def _parse_datetimes(values):
 
     if getattr(parsed.dt, "tz", None) is not None:
         parsed = parsed.dt.tz_localize(None)         # keep the wall clock time
+
+    # 24:00 is the start of the next day
+    for position, value in enumerate(cleaned):
+        if pd.isna(parsed.iloc[position]) and isinstance(value, str):
+            found = _MIDNIGHT_RE.match(value)
+            if found:
+                day = pd.to_datetime(found.group(1), dayfirst=day_first, errors="coerce")
+                if not pd.isna(day):
+                    parsed.iloc[position] = day.normalize() + pd.Timedelta(days=1)
 
     return parsed
 

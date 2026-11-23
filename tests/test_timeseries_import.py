@@ -553,3 +553,89 @@ def test_excel_prefers_the_sheet_with_numbers_over_a_notes_sheet():
 
     assert table.used.sheet == "Daten"
     assert table.df["Last"].tolist() == [2.5, 3.5, 4.5]
+
+
+
+
+# ---------------------------------------------------------------------------
+# 24:00, times with a time zone, a title above a small table
+# ---------------------------------------------------------------------------
+
+def test_24_00_is_the_start_of_the_next_day_and_is_not_reported_as_unreadable():
+    text = (
+        "Zeitstempel;kWh\n"
+        "01.01.2024 00:15;3,1\n"
+        "01.01.2024 23:45;3,2\n"
+        "01.01.2024 24:00;3,3\n"
+        "02.01.2024 00:15;3,4\n"
+    )
+
+    table = read_table(csv_file(text), "x.csv")
+
+    assert table.df["Zeitstempel"].tolist() == [
+        pd.Timestamp("2024-01-01 00:15"), pd.Timestamp("2024-01-01 23:45"), pd.Timestamp("2024-01-02 00:00"),
+        pd.Timestamp("2024-01-02 00:15")]
+    assert "dates_unreadable" not in [message.code for message in table.messages]
+
+
+def test_24_00_is_read_with_seconds_with_a_t_and_in_a_year_first_date():
+    text = "t,v\n2024-12-31T24:00:00,1\n2024-12-31T23:45:00,2\n2025-01-01 24:00,3\n"
+
+    table = read_table(csv_file(text), "x.csv")
+
+    assert table.df["t"].tolist() == [
+        pd.Timestamp("2025-01-01 00:00"), pd.Timestamp("2024-12-31 23:45"), pd.Timestamp("2025-01-02 00:00")]
+
+
+def test_times_with_the_offsets_of_summer_and_winter_time_are_read_as_wall_clock_times():
+    text = (
+        "ts,kW\n"
+        "2024-10-27T01:45:00+02:00,5\n"
+        "2024-10-27T02:00:00+02:00,6\n"
+        "2024-10-27T02:00:00+01:00,7\n"
+        "2024-10-27T02:15:00+01:00,8\n"
+        "2024-10-27T03:00:00Z,9\n"
+        "2024-10-27T04:00:00+0100,10\n"
+    )
+
+    table = read_table(csv_file(text), "x.csv")
+
+    assert table.df["ts"].tolist() == [
+        pd.Timestamp("2024-10-27 01:45"), pd.Timestamp("2024-10-27 02:00"), pd.Timestamp("2024-10-27 02:00"),
+        pd.Timestamp("2024-10-27 02:15"), pd.Timestamp("2024-10-27 03:00"), pd.Timestamp("2024-10-27 04:00")]
+    assert table.df["kW"].tolist() == [5, 6, 7, 8, 9, 10]
+
+
+def test_dates_without_a_time_and_times_that_are_not_zones_are_not_cut():
+    table = read_table(csv_file("d;v\n2024-03-31;1\n2024-04-01;2\n2024-04-02;3\n"), "x.csv")
+    other = read_table(csv_file("d;v\n31.03.2024 10:30;1\n01.04.2024 10:30;2\n02.04.2024 10:30;3\n"), "x.csv")
+
+    assert table.df["d"].tolist() == [pd.Timestamp("2024-03-31"), pd.Timestamp("2024-04-01"), pd.Timestamp("2024-04-02")]
+    assert other.df["d"].iloc[0] == pd.Timestamp("2024-03-31 10:30")
+
+
+def test_lines_of_two_cells_above_a_table_of_two_columns_are_not_taken_for_the_table():
+    text = (
+        "Zaehlpunkt;DE0001234\n"
+        "Export;2024\n"
+        "\n"
+        "Zeitstempel;Leistung\n"
+        "dd.mm.yyyy hh:mm;kW\n"
+        "01.01.2024 00:00;10,5\n"
+        "01.01.2024 00:15;11,5\n"
+        "01.01.2024 00:30;12,5\n"
+    )
+
+    table = read_table(csv_file(text), "x.csv")
+
+    assert list(table.df.columns) == ["Zeitstempel", "Leistung"]
+    assert table.used.header_line == 4 and table.used.first_data_line == 6
+    assert table.df["Leistung"].tolist() == [10.5, 11.5, 12.5]
+
+
+def test_a_title_with_a_number_and_an_empty_line_above_the_column_names_is_not_the_start_of_the_data():
+    text = "Bericht;2024\n\nZeit;Wert\n01.01.2024 00:00;1\n01.01.2024 00:15;2\n01.01.2024 00:30;3\n01.01.2024 00:45;4\n"
+
+    table = read_table(csv_file(text), "x.csv")
+
+    assert list(table.df.columns) == ["Zeit", "Wert"] and table.df["Wert"].tolist() == [1, 2, 3, 4]
