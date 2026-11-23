@@ -1,4 +1,10 @@
 {
+  "analysis.hint.base_high": "The base load is {share} % of the mean load: much of the use runs around the clock.",
+  "analysis.hint.base_low": "The base load is only {share} % of the mean load: the use follows the operating hours closely.",
+  "analysis.hint.peak_rare": "The load reaches 90 % of the peak ({limit} kW) or more in only {hours} hours of the period (days with such values: {days}).",
+  "analysis.hint.peak_window": "The highest daily peaks fall between {start} and {end}.",
+  "analysis.hint.weekend_low": "On Saturdays, Sundays and holidays the mean load falls to {share} % of that of a workday.",
+  "analysis.hint.weekend_similar": "On Saturdays, Sundays and holidays the mean load is {share} % of that of a workday: the operation is almost continuous.",
   "app.subtitle": "Version with the NiceGUI interface (work in progress).",
   "app.title": "Energy System Web Tool",
   "area.optimization": "Optimization",

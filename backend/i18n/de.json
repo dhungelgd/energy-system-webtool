@@ -1,4 +1,10 @@
 {
+  "analysis.hint.base_high": "Die Grundlast beträgt {share} % der mittleren Last: ein großer Teil des Verbrauchs läuft rund um die Uhr.",
+  "analysis.hint.base_low": "Die Grundlast beträgt nur {share} % der mittleren Last: der Verbrauch folgt stark den Betriebszeiten.",
+  "analysis.hint.peak_rare": "Die Last erreicht 90 % der Spitze ({limit} kW) oder mehr nur in {hours} Stunden des Zeitraums (Tage mit solchen Werten: {days}).",
+  "analysis.hint.peak_window": "Die höchsten Tagesspitzen liegen zwischen {start} und {end} Uhr.",
+  "analysis.hint.weekend_low": "An Samstagen, Sonntagen und Feiertagen sinkt die mittlere Last auf {share} % der eines Werktags.",
+  "analysis.hint.weekend_similar": "An Samstagen, Sonntagen und Feiertagen beträgt die mittlere Last {share} % der eines Werktags: der Betrieb läuft fast durchgehend.",
   "app.subtitle": "Version mit der NiceGUI-Oberfläche (in Arbeit).",
   "app.title": "Energiesystem-Webtool",
   "area.optimization": "Optimierung",

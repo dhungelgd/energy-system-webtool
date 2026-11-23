@@ -321,6 +321,9 @@ def literal_keys_in_calls():
                 keys.append((path.name, f"profile.error.{literal(0)}"))
             elif isinstance(function, ast.Name) and function.id == "ProfileNotice" and literal(1):
                 keys.append((path.name, f"profile.{literal(1)}"))
+            # and for the hints of the analysis of a load profile: AnalysisHint("code", ...)
+            elif isinstance(function, ast.Name) and function.id == "AnalysisHint" and literal(0):
+                keys.append((path.name, f"analysis.hint.{literal(0)}"))
             elif isinstance(function, ast.Name) and function.id == "Notice" and literal(1):
                 keys.append((path.name, f"import.{literal(1)}"))
 
