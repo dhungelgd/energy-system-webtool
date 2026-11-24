@@ -132,3 +132,145 @@ def test_a_column_of_shares_asks_for_the_energy_and_is_ready_with_it():
     session.read()
 
     assert session.ready and session.profile.energy_kwh() == pytest.approx(5000.0)
+
+
+# ---------------------------------------------------------------------------
+# the analysis
+# ---------------------------------------------------------------------------
+
+def two_years():
+    index = starts("2022-01-01 00:00", "2023-12-31 23:00", freq="60min")
+
+    return render(index, kw(index), step="60min", header="Zeit;Last kW"), index
+
+
+def test_a_file_that_is_ready_is_analysed_with_the_choices_that_nothing_has_changed_yet():
+    text, _ = a_day()
+    session = session_of(text)
+
+    session.read()
+
+    assert session.analysis is not None and not session.analysis_failed
+    assert session.analysis.options.state == "BY" and session.analysis.options.catholic_municipality is True
+    assert session.analysis.options.year is None and session.analysis_choices == {"year": None}
+    assert session.analysis.kpis.energy_kwh == pytest.approx(session.profile.energy_kwh())
+
+
+def test_a_file_of_more_than_a_year_is_analysed_for_the_latest_whole_year_and_the_years_are_listed():
+    text, _ = two_years()
+    session = session_of(text)
+
+    session.read()
+
+    assert session.years() == [(2022, 365), (2023, 365)] and session.analysis.year == 2023
+    assert session.analysis_choices["year"] == 2023 and session.analysis.kpis.values == 8760
+
+
+def test_the_whole_profile_can_be_chosen_and_then_the_analysis_covers_all_of_it():
+    text, _ = two_years()
+    session = session_of(text)
+    session.read()
+
+    session.choose_analysis(year=None)
+    session.analyse()
+
+    assert session.analysis.year is None and session.analysis.kpis.values == 2 * 8760
+
+
+def test_another_year_can_be_chosen_and_a_year_that_the_profile_does_not_have_is_refused_and_changes_nothing():
+    text, _ = two_years()
+    session = session_of(text)
+    session.read()
+
+    session.choose_analysis(year=2022)
+    session.analyse()
+    assert session.analysis.year == 2022 and session.analysis.kpis.start.year == 2022
+
+    with pytest.raises(ValueError, match="no values in 2021"):
+        session.choose_analysis(year=2021)
+    assert session.analysis_choices["year"] == 2022
+
+
+def test_the_state_of_the_holidays_changes_the_analysis():
+    index = starts("2023-01-02 00:00", "2023-01-15 23:45")                       # the 6th of January 2023 is a Friday
+    session = session_of(render(index, kw(index)))
+    session.read()
+    assert session.analysis.day_type_days["workday"] == 9                        # Bavaria has the 6th of January
+
+    session.choose_analysis(state="NW")
+    session.analyse()
+
+    assert session.analysis.day_type_days["workday"] == 10 and session.analysis.options.state == "NW"
+
+
+def test_mary_s_assumption_can_be_switched_off_for_a_municipality_that_is_mainly_protestant():
+    index = starts("2023-08-14 00:00", "2023-08-20 23:45")
+    session = session_of(render(index, kw(index)))
+    session.read()
+    assert session.analysis.day_type_days["workday"] == 4
+
+    session.choose_analysis(catholic_municipality=False)
+    session.analyse()
+
+    assert session.analysis.day_type_days["workday"] == 5
+
+
+def test_a_choice_that_cannot_be_used_is_refused_and_changes_nothing():
+    session = session_of(a_day()[0])
+    session.read()
+    session.choose_analysis(state="NW")
+
+    with pytest.raises(ValueError):
+        session.choose_analysis(state="XX")
+    with pytest.raises(ValueError, match="unknown choice"):
+        session.choose_analysis(colour="red")
+
+    assert session.analysis_choices["state"] == "NW"
+
+
+def test_the_choices_of_the_analysis_stay_when_the_file_is_read_again_with_another_answer():
+    text, _ = two_years()
+    session = session_of(text)
+    session.read()
+    session.choose_analysis(state="SN", year=None)
+
+    session.decide(stamp_at="start")
+    session.read()
+
+    assert session.analysis_choices["state"] == "SN" and session.analysis_choices["year"] is None
+    assert session.analysis.options.state == "SN" and session.analysis.kpis.values == 2 * 8760
+
+
+def test_a_file_that_is_not_ready_or_cannot_be_read_has_no_analysis_and_no_years():
+    unsure = session_of(a_day(header="Zeit;Wert")[0])
+    broken = session_of("Name;kW\na;1\nb;2\nc;3\nd;4\n")
+
+    unsure.read()
+    broken.read()
+
+    assert unsure.analysis is None and unsure.years() == [] and not unsure.analysis_failed
+    assert broken.analysis is None and broken.years() == []
+
+
+def test_an_analysis_that_has_nothing_to_work_on_is_said_to_have_failed(monkeypatch):
+    from frontend_nicegui import profile_session
+
+    session = session_of(a_day()[0])
+
+    def nothing(*args, **kwargs):
+        raise ValueError("the profile has no values")
+
+    monkeypatch.setattr(profile_session, "analyze", nothing)
+    session.read()
+
+    assert session.ready and session.analysis is None and session.analysis_failed is True
+
+
+def test_analysing_again_forgets_a_failure():
+    session = session_of(a_day()[0])
+    session.read()
+    session.analysis_failed, session.analysis = True, None
+
+    session.analyse()
+
+    assert session.analysis is not None and not session.analysis_failed

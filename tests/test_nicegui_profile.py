@@ -16,6 +16,7 @@ from frontend_nicegui.profile_session import ProfileSession  # noqa: E402
 from tests.test_load_profile import kw, render, starts, workshop  # noqa: E402
 from tests.test_nicegui_bulk import texts  # noqa: E402
 from tests.test_nicegui_draft_run import exists, field, settle, switched_to  # noqa: E402
+from tests.test_profile_session import two_years  # noqa: E402
 
 EN = Translator("en")
 
@@ -36,7 +37,7 @@ def a_file(header="Zeitstempel;Leistung kW", first="2024-02-05 00:00", last="202
 
 async def reading_done(user: User):
     for _ in range(60):
-        if not exists(user, "profile-reading"):
+        if not exists(user, "profile-reading") and not exists(user, "profile-analysing"):
             break
         await asyncio.sleep(0.2)
     await settle()
@@ -366,3 +367,228 @@ async def test_while_the_file_is_being_read_the_page_says_so_and_goes_on_working
     await settle()
 
     assert not exists(user, "profile-reading") and exists(user, "profile-summary")
+
+
+# ---------------------------------------------------------------------------
+# the analysis: key figures, tabs, charts, choices
+# ---------------------------------------------------------------------------
+
+THREE_WEEKS = dict(first="2024-02-05 00:00", last="2024-02-25 23:45")
+
+
+def names_of(user, marker="analysis-typical"):
+    """The names of the lines in a chart of the typical days (the bands have none)."""
+
+    return [trace["name"] for trace in field(user, marker).figure["data"] if trace.get("name")]
+
+
+async def loaded(user: User, content=None, query="?area=profile", **file):
+    content = content if content is not None else a_file(**(file or THREE_WEEKS))[0]
+    await to_profile(user, query)
+    await upload(user, content)
+
+
+async def test_a_file_that_is_ready_shows_the_key_figures_and_two_tabs_and_the_charts(user: User):
+    await loaded(user)
+
+    assert exists(user, "analysis-kpis") and field(user, "analysis-tabs").value == "overview"
+    for key in ("energy", "peak", "base_percentile", "base_night", "utilization", "load_factor"):
+        assert exists(user, f"analysis-kpi-{key}"), key
+    assert [field(user, f"analysis-tab-{name}").props["label"] for name in ("overview", "quality")] == ["Overview", "Data quality"]
+    assert all(exists(user, marker) for marker in ("analysis-typical", "analysis-duration", "analysis-monthly", "analysis-hints"))
+
+
+async def test_the_key_figures_are_those_of_the_profile(user: User):
+    content, values = a_file(**THREE_WEEKS)
+    index = starts(THREE_WEEKS["first"], THREE_WEEKS["last"])
+    await loaded(user, content)
+
+    assert texts(user, "analysis-kpi-energy") == ["Energy in the period", f"{EN.integer(round(values.sum() / 4))} kWh", "21 days"]
+    assert texts(user, "analysis-kpi-peak") == [
+        "Peak load", f"{EN.number(round(float(values.max()), 1))} kW", f"on {index[int(np.argmax(values))].strftime('%Y-%m-%d %H:%M')}"]
+    assert texts(user, "analysis-kpi-utilization") == ["Hours of use", "–", "Only for 330 days or more"]
+    assert texts(user, "analysis-kpi-load_factor")[0] == "Load factor"
+
+
+async def test_the_page_shows_the_key_figures_and_the_tabs_in_german(user: User):
+    await loaded(user, query="?area=profile&lang=de")
+
+    assert texts(user, "analysis-kpi-energy")[0] == "Energie im Zeitraum" and texts(user, "analysis-kpi-energy")[2] == "21 Tage"
+    assert texts(user, "analysis-kpi-base_percentile")[0] == "Grundlast (95-%-Wert)" and texts(user, "analysis-kpi-base_night")[0] == "Grundlast (Nacht)"
+    assert [field(user, f"analysis-tab-{name}").props["label"] for name in ("overview", "quality")] == ["Übersicht", "Datenqualität"]
+    assert texts(user, "analysis-card-typical")[0] == "Typische Tage" and any("Tagesspitzen" in t or "Grundlast" in t or "Last erreicht" in t for t in texts(user, "analysis-hints"))
+
+
+async def test_the_observations_are_there_and_say_how_rare_the_peak_is(user: User):
+    await loaded(user)
+
+    assert texts(user, "analysis-hints")[0] == "Observations" and exists(user, "analysis-hint-peak_rare")
+    assert any("90 % of the peak" in line for line in texts(user, "analysis-hint-peak_rare"))
+
+
+async def test_a_profile_with_too_few_days_for_a_typical_day_says_so_instead_of_drawing_one(user: User):
+    await loaded(user, **dict(first="2024-02-05 00:00", last="2024-02-06 23:45"))
+
+    assert field(user, "analysis-typical-none").text == "A typical day needs at least 3 days of its kind."
+    assert exists(user, "analysis-duration") and exists(user, "analysis-monthly") and not exists(user, "analysis-typical")
+
+
+async def test_the_lines_of_the_typical_days_are_for_the_types_of_day_that_have_enough_days(user: User):
+    await loaded(user)
+
+    assert names_of(user) == ["Workday (n = 15)", "Saturday (n = 3)", "Sunday or holiday (n = 3)"]
+
+
+async def test_the_data_of_the_file_is_in_the_second_tab_with_the_count_of_the_warnings_a_gap_adds_one(user: User):
+    index = starts("2024-02-05 00:00", "2024-02-25 23:45")
+    values = kw(index)
+    text = render(index[:200], values[:200]) + "\n".join(render(index[220:], values[220:]).splitlines()[1:]) + "\n"
+    await loaded(user, text.encode())
+
+    assert field(user, "analysis-quality-badge").text == "2"                          # the gap, and that the profile is not a year
+    assert exists(user, "profile-summary") and exists(user, "profile-settings") and exists(user, "profile-notes")
+
+
+async def test_a_file_without_a_gap_has_only_the_warning_that_it_is_less_than_a_year(user: User):
+    await loaded(user)
+
+    assert field(user, "analysis-quality-badge").text == "1" and exists(user, "profile-note-short_period")
+
+
+async def test_a_file_that_is_not_ready_has_no_key_figures_and_no_tabs(user: User):
+    content, _ = a_file(header="Zeit;Wert", **THREE_WEEKS)
+    await loaded(user, content)
+
+    assert exists(user, "profile-ask-hint") and not any(exists(user, m) for m in ("analysis-kpis", "analysis-tabs", "analysis-settings"))
+
+
+async def test_the_state_is_bavaria_at_first_and_it_has_the_assumption_to_switch(user: User):
+    await loaded(user)
+
+    assert field(user, "analysis-state").value == "BY" and field(user, "analysis-catholic").value is True
+    assert not exists(user, "analysis-year") and exists(user, "analysis-settings-hint")
+
+
+async def test_another_state_gives_other_holidays_and_the_typical_days_follow(user: User):
+    content, _ = a_file(first="2023-01-02 00:00", last="2023-01-22 23:45")           # the 6th of January is a Friday
+    await loaded(user, content)
+    assert names_of(user)[0] == "Workday (n = 14)"
+
+    field(user, "analysis-state").set_value("NW")
+    await settle()
+    await reading_done(user)
+
+    assert names_of(user)[0] == "Workday (n = 15)" and field(user, "analysis-state").value == "NW"
+    assert not exists(user, "analysis-catholic")                                        # only Bavaria has the choice
+
+
+async def test_the_assumption_can_be_switched_off_and_the_typical_days_follow(user: User):
+    content, _ = a_file(first="2023-08-14 00:00", last="2023-09-03 23:45")
+    await loaded(user, content)
+    assert names_of(user)[0] == "Workday (n = 14)"
+
+    field(user, "analysis-catholic").set_value(False)
+    await settle()
+    await reading_done(user)
+
+    assert names_of(user)[0] == "Workday (n = 15)" and field(user, "analysis-catholic").value is False
+
+
+async def test_a_profile_of_two_years_is_analysed_for_the_latest_year_and_the_period_can_be_changed(user: User):
+    text, index = two_years()
+    values = kw(index)
+    await loaded(user, text.encode())
+
+    assert field(user, "analysis-year").value == "2023"
+    assert texts(user, "analysis-kpi-energy")[:2] == ["Yearly energy", f"{EN.integer(round(values[index.year == 2023].sum()))} kWh"]
+
+    field(user, "analysis-year").set_value("all")
+    await settle()
+    await reading_done(user)
+    assert texts(user, "analysis-kpi-energy")[1] == f"{EN.integer(round(values.sum()))} kWh"
+
+    field(user, "analysis-year").set_value("2022")
+    await settle()
+    await reading_done(user)
+    assert texts(user, "analysis-kpi-energy")[1] == f"{EN.integer(round(values[index.year == 2022].sum()))} kWh"
+    assert field(user, "analysis-year").value == "2022"
+
+
+async def test_the_tab_that_is_open_stays_open_when_an_answer_reads_the_file_again(user: User):
+    await loaded(user)
+    field(user, "analysis-tabs").set_value("quality")
+    await settle()
+
+    field(user, "profile-ask-stamp").set_value("end")
+    await apply(user)
+
+    assert field(user, "analysis-tabs").value == "quality" and exists(user, "profile-summary")
+    assert not exists(user, "profile-note-stamp_assumed") and field(user, "profile-ask-stamp").value == "end"
+
+
+async def test_the_language_switch_keeps_the_tab_and_the_choices_of_the_analysis(user: User):
+    await loaded(user)
+    field(user, "analysis-state").set_value("SN")
+    await settle()
+    await reading_done(user)
+    field(user, "analysis-tabs").set_value("quality")
+    await settle()
+
+    await switched_to(user, "de")
+    await settle()
+
+    assert field(user, "analysis-tabs").value == "quality" and field(user, "analysis-state").value == "SN"
+    assert field(user, "analysis-tab-overview").props["label"] == "Übersicht"
+
+
+async def test_while_the_analysis_is_worked_out_again_the_page_says_so(user: User, monkeypatch):
+    await loaded(user)
+    release = threading.Event()
+    original = ProfileSession.analyse
+
+    def slow(self):
+        release.wait(10)
+        original(self)
+
+    monkeypatch.setattr(ProfileSession, "analyse", slow)
+
+    field(user, "analysis-state").set_value("BE")
+    await settle()
+    assert exists(user, "profile-analysing") and not exists(user, "analysis-kpis")
+
+    release.set()
+    await reading_done(user)
+
+    assert not exists(user, "profile-analysing") and exists(user, "analysis-kpis") and field(user, "analysis-state").value == "BE"
+
+
+async def test_an_analysis_that_has_no_values_to_work_on_is_told_and_the_data_of_the_file_is_still_shown(user: User, monkeypatch):
+    def nothing(self):
+        self.analysis, self.analysis_failed = None, True                                # what the session does when it raises
+
+    monkeypatch.setattr(ProfileSession, "analyse", nothing)
+
+    await loaded(user)
+
+    assert field(user, "analysis-error").text == "The profile could not be analysed: there are no values in the chosen period."
+    assert exists(user, "profile-summary") and exists(user, "analysis-settings") and not exists(user, "analysis-kpis")
+
+
+async def test_a_german_page_has_the_choices_of_the_analysis_in_german(user: User):
+    await loaded(user, query="?area=profile&lang=de")
+
+    assert field(user, "analysis-state").props["label"] == "Feiertage von" and field(user, "analysis-catholic").text.startswith("Mariä Himmelfahrt")
+    assert any(label.startswith("Die Tagesarten") for label in texts(user, "analysis-settings-hint")) or field(user, "analysis-settings-hint").text.startswith("Die Tagesarten")
+
+
+async def test_a_new_file_begins_in_the_overview_even_if_the_data_tab_was_open_before(user: User):
+    content, _ = a_file(**THREE_WEEKS)
+    await loaded(user, content)
+    field(user, "analysis-tabs").set_value("quality")
+    await settle()
+
+    user.find(marker="profile-remove").click()
+    await settle()
+    await upload(user, content)
+
+    assert field(user, "analysis-tabs").value == "overview"
