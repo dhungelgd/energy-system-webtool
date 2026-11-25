@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 
 from backend.i18n import Translator
-from backend.load_analysis import analyze
-from frontend_nicegui.analysis_view import ALL_YEARS, kpi_items, state_options, year_options
+from backend.load_analysis import AnalysisOptions, analyze
+from frontend_nicegui.analysis_view import ALL_YEARS, day_counts_text, kpi_items, state_options, year_options
 from tests.test_load_analysis import ZONE, a_year, week
 
 DE, EN = Translator("de"), Translator("en")
@@ -116,3 +116,18 @@ def test_all_the_states_are_in_the_order_of_their_names_in_each_language():
         "Baden-Württemberg", "Bavaria", "Berlin", "Brandenburg", "Bremen", "Hamburg", "Hesse", "Lower Saxony",
         "Mecklenburg-Western Pomerania", "North Rhine-Westphalia", "Rhineland-Palatinate", "Saarland", "Saxony", "Saxony-Anhalt",
         "Schleswig-Holstein", "Thuringia"]
+
+
+def test_the_days_of_a_year_are_counted_by_the_type_of_day_and_the_state_of_the_holidays_is_named():
+    series, step = a_year()                                                   # 2023: 248 workdays, 52 Saturdays, 65 Sundays and holidays in Bavaria
+
+    bavaria = day_counts_text(analyze(series, step), EN)
+    north_rhine = day_counts_text(analyze(series, step, AnalysisOptions(state="NW")), DE)
+
+    assert bavaria == "Days in the period: Workday: 248 · Saturday: 52 · Sunday or holiday: 65 (holidays of Bavaria)."
+    assert north_rhine.startswith("Tage im Zeitraum: Werktag: 2") and north_rhine.endswith("(Feiertage von Nordrhein-Westfalen).")
+    assert "Samstag: 52" in north_rhine
+
+
+def test_the_days_of_a_week_are_counted_too():
+    assert day_counts_text(analyze(*week()), EN) == "Days in the period: Workday: 5 · Saturday: 1 · Sunday or holiday: 1 (holidays of Bavaria)."

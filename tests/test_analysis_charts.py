@@ -16,9 +16,12 @@ from frontend_nicegui.analysis_charts import (
     ENERGY_COLOR_PALE,
     clock,
     duration_figure,
+    heatmap_figure,
     month_label,
     monthly_figure,
+    seasonal_figure,
     typical_days_figure,
+    weekday_figure,
 )
 from frontend_nicegui.analysis_view import STATE_TEXTS
 from tests.test_load_analysis import ZONE, a_year, week
@@ -204,3 +207,130 @@ def test_every_state_has_a_name_in_both_languages_and_the_names_are_not_the_keys
     for tr in (EN, DE):
         names = [tr(key) for key in STATE_TEXTS.values()]
         assert all(name and not name.startswith("state.") for name in names) and len(set(names)) == 16
+
+
+# ---------------------------------------------------------------------------
+# the heat map
+# ---------------------------------------------------------------------------
+
+def test_the_heat_map_has_a_row_for_each_time_of_day_and_a_column_for_each_day_with_the_load_in_kw():
+    figure = heatmap_figure(analyze(*week()), EN)
+    heat = figure.data[0]
+
+    assert len(heat.z) == 24 and len(heat.z[0]) == 7 and list(heat.x)[:2] == ["2023-02-06", "2023-02-07"]
+    assert list(heat.y)[:3] == ["00:00", "01:00", "02:00"] and heat.z[10][2] == 150.0 and heat.z[8][0] == 100.0 and heat.z[8][5] == 20.0
+
+
+def test_a_cell_without_a_value_is_empty_and_has_no_hover_text():
+    series, step = week()
+    series.iloc[26] = np.nan                                                   # Tuesday 2:00
+
+    heat = heatmap_figure(analyze(series, step), EN).data[0]
+
+    assert heat.z[2][1] is None and sum(value is None for row in heat.z for value in row) == 1 and heat.hoverongaps is False
+
+
+def test_the_hours_of_the_clock_change_are_empty_cells_in_the_spring_and_filled_in_the_autumn():
+    series, step = a_year(freq="15min", level=40.0)
+
+    heat = heatmap_figure(analyze(series, step), EN).data[0]
+    days = list(heat.x)
+    spring, autumn = days.index("2023-03-26"), days.index("2023-10-29")
+
+    assert [heat.z[row][spring] for row in range(8, 12)] == [None] * 4 and heat.z[12][spring] == 40.0
+    assert [heat.z[row][autumn] for row in range(8, 12)] == [40.0] * 4
+
+
+def test_midnight_is_at_the_top_and_the_ticks_are_every_three_hours_and_the_day_axis_is_a_date_axis():
+    figure = heatmap_figure(analyze(*week()), EN)
+
+    assert figure.layout.yaxis.autorange == "reversed" and figure.layout.yaxis.type == "category"
+    assert list(figure.layout.yaxis.tickvals) == ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"]
+    assert figure.layout.xaxis.type == "date" and figure.layout.yaxis.title.text == "Time of day"
+
+
+def test_the_date_in_the_hover_text_is_written_as_the_language_writes_it_and_the_bar_says_kw():
+    english, german = heatmap_figure(analyze(*week()), EN), heatmap_figure(analyze(*week()), DE)
+
+    assert english.layout.xaxis.hoverformat == "%Y-%m-%d" and german.layout.xaxis.hoverformat == "%d.%m.%Y"
+    assert english.data[0].colorbar.title.text == "kW" and german.layout.yaxis.title.text == "Uhrzeit"
+
+
+def test_the_colours_start_at_zero_unless_the_profile_has_a_negative_value():
+    series, step = week()
+    assert heatmap_figure(analyze(series, step), EN).data[0].zmin == 0.0
+
+    series.iloc[5] = -12.5
+    assert heatmap_figure(analyze(series, step), EN).data[0].zmin == -12.5
+
+
+def test_a_year_of_quarter_hours_is_a_heat_map_of_96_rows_and_365_columns_that_is_not_heavy():
+    import json
+
+    series, step = a_year(freq="15min", level=33.3)
+    figure = heatmap_figure(analyze(series, step), EN)
+
+    assert len(figure.data[0].z) == 96 and len(figure.data[0].z[0]) == 365
+    assert len(json.dumps(figure.data[0].z)) < 400_000
+
+
+# ---------------------------------------------------------------------------
+# the typical days by season
+# ---------------------------------------------------------------------------
+
+def test_the_seasons_are_side_by_side_in_the_order_of_the_year_and_named_in_the_language():
+    analysis = analyze(*week(days=91, start="2023-03-06", spike=False))
+
+    english = seasonal_figure(analysis, EN)
+    german = seasonal_figure(analysis, DE)
+
+    assert [a.text for a in english.layout.annotations] == ["Winter", "Transition", "Summer"]
+    assert [a.text for a in german.layout.annotations] == ["Winter", "Übergang", "Sommer"]
+
+
+def test_each_season_has_a_line_for_each_type_of_day_that_has_enough_days_and_the_legend_names_each_type_once():
+    figure = seasonal_figure(analyze(*week(days=91, start="2023-03-06", spike=False)), EN)
+
+    # winter has 15 days (two Saturdays and two Sundays: too few), so it has the workday only; the other two seasons have all three
+    assert len(figure.data) == 7 and [trace.name for trace in figure.data if trace.showlegend] == ["Workday", "Saturday", "Sunday or holiday"]
+    assert {trace.line.color for trace in figure.data} == set(DAY_TYPE_COLORS.values())
+    assert all(trace.legendgroup in ("workday", "saturday", "sunday") for trace in figure.data)
+
+
+def test_a_season_that_a_profile_does_not_reach_is_left_out_and_the_hover_text_says_how_many_days_it_is_made_of():
+    figure = seasonal_figure(analyze(*week()), EN)
+
+    assert [a.text for a in figure.layout.annotations] == ["Winter"] and len(figure.data) == 1
+    assert "Workday (n = 5)" in figure.data[0].hovertemplate
+    assert list(figure.data[0].x)[:2] == [0.0, 1.0] and figure.data[0].y[10] == 110.0
+
+
+def test_a_profile_without_enough_days_in_any_season_has_no_figure():
+    assert seasonal_figure(analyze(*week(days=2)), EN) is None
+
+
+def test_the_power_axis_has_its_title_on_the_first_chart_only_and_the_times_are_every_six_hours():
+    figure = seasonal_figure(analyze(*week(days=91, start="2023-03-06", spike=False)), EN)
+
+    assert figure.layout.yaxis.title.text == "Power (kW)" and not figure.layout.yaxis2.title.text
+    assert list(figure.layout.xaxis.tickvals) == [0, 6, 12, 18, 24] and list(figure.layout.xaxis.ticktext)[1] == "06:00"
+
+
+# ---------------------------------------------------------------------------
+# the weekdays
+# ---------------------------------------------------------------------------
+
+def test_the_mean_load_of_each_weekday_is_a_bar_with_the_name_of_the_weekday():
+    figure = weekday_figure(analyze(*week()), EN)
+    bars = figure.data[0]
+
+    assert list(bars.x) == ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    assert list(bars.y) == pytest.approx([1120 / 24, 1120 / 24, 1170 / 24, 1120 / 24, 1120 / 24, 20.0, 20.0])
+    assert figure.layout.yaxis.title.text == "Mean power (kW)" and bars.marker.color == "#005D9D"
+
+
+def test_a_weekday_that_the_profile_does_not_have_is_not_drawn_and_the_names_are_in_german_for_a_german_page():
+    bars = weekday_figure(analyze(*week(days=5)), DE).data[0]
+
+    assert list(bars.x) == ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"] and len(bars.y) == 5
+    assert weekday_figure(SimpleNamespace(weekdays=[None] * 7), EN) is None

@@ -2,9 +2,11 @@
 holidays and of the period, and the cards of the key figures with their explanations. No NiceGUI code in here, so it is easy
 to test."""
 
+from backend.holidays_de import DAY_TYPES
 from backend.load_analysis import YEAR_DAYS
+from frontend_nicegui.analysis_charts import DAY_TYPE_TEXTS
 
-ALL_YEARS = "all"                                    # the choice of the whole profile (the value of the year is None)
+ALL_YEARS = "all"                                 # the choice of the whole profile (the value of the year is None)
 
 STATE_TEXTS = {
     "BW": "state.BW", "BY": "state.BY", "BE": "state.BE", "BB": "state.BB", "HB": "state.HB", "HH": "state.HH",
@@ -69,3 +71,12 @@ def kpi_items(analysis, tr):
              value=f"{tr.number(round(100 * kpis.load_factor))} %" if kpis.load_factor is not None else "–", sub=None,
              help=tr("analysis.help.load_factor")),
     ]
+
+
+def day_counts_text(analysis, tr):
+    """How many days of each type the period has, and whose holidays were counted: the reader sees what the typical days are
+    made of."""
+
+    counts = " · ".join(f"{tr(DAY_TYPE_TEXTS[kind])}: {tr.integer(analysis.day_type_days[kind])}" for kind in DAY_TYPES)
+
+    return tr("analysis.patterns.days", counts=counts, state=tr(STATE_TEXTS[analysis.options.state]))

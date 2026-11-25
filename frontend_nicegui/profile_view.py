@@ -12,8 +12,15 @@ from backend.holidays_de import DEFAULT_STATE
 from backend.load_analysis import analysis_text
 from backend.load_profile import UnitText, profile_text
 from backend.timeseries_import import StepText
-from frontend_nicegui.analysis_charts import duration_figure, monthly_figure, typical_days_figure
-from frontend_nicegui.analysis_view import ALL_YEARS, kpi_items, state_options, year_options
+from frontend_nicegui.analysis_charts import (
+    duration_figure,
+    heatmap_figure,
+    monthly_figure,
+    seasonal_figure,
+    typical_days_figure,
+    weekday_figure,
+)
+from frontend_nicegui.analysis_view import ALL_YEARS, day_counts_text, kpi_items, state_options, year_options
 from frontend_nicegui.chart_style import as_chart
 from frontend_nicegui.profile_session import ProfileSession
 from frontend_nicegui.series_widgets import ACCEPT
@@ -22,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 UNIT_ORDER = ("kW", "kWh", "W", "Wh", "MW", "MWh")                  # the units to choose from
 NOTICE_ICONS = {"warning": ("warning", "warning"), "info": ("info", "primary")}
-OVERVIEW, QUALITY = "overview", "quality"                           # the tabs of the analysis
+OVERVIEW, PATTERNS, QUALITY = "overview", "patterns", "quality"         # the tabs of the analysis
 
 
 def facts(profile, tr):
@@ -241,8 +248,9 @@ def make_profile_view(state):
                         ui.label(item["sub"]).classes("text-grey text-xs")
                     ui.tooltip(item["help"]).classes("text-body2")
 
-    def chart_card(marker, title, hint, figure, name, none_text=None):
-        with ui.card().classes("flex-1 gap-2").style("min-width: 26rem").mark(f"analysis-card-{marker}"):
+    def chart_card(marker, title, hint, figure, name, none_text=None, wide=False):
+        with ui.card().classes("w-full gap-2" if wide else "flex-1 gap-2").style("min-width: 26rem").mark(
+                f"analysis-card-{marker}"):
             ui.label(title).classes("text-xl font-semibold")
             ui.label(hint).classes("text-grey text-sm")
             if figure is None:
@@ -273,6 +281,20 @@ def make_profile_view(state):
                        monthly_figure(analysis, tr), "months")
             hints_card(analysis)
 
+    def patterns(analysis):
+        """How the load goes over the period, the seasons and the weekdays. The heat map is heavy, so this is built only while
+        its tab is open."""
+
+        tr = state.tr
+
+        chart_card("heatmap", tr("analysis.chart.heatmap_title"), tr("analysis.chart.heatmap_hint"),
+                   heatmap_figure(analysis, tr), "heatmap", wide=True)
+        chart_card("seasonal", tr("analysis.chart.seasonal_title"), tr("analysis.chart.seasonal_hint"),
+                   seasonal_figure(analysis, tr), "seasonal-days", tr("analysis.chart.seasonal_none"), wide=True)
+        ui.label(day_counts_text(analysis, tr)).classes("text-grey text-sm").mark("analysis-day-counts")
+        chart_card("weekday", tr("analysis.chart.weekday_title"), tr("analysis.chart.weekday_hint"),
+                   weekday_figure(analysis, tr), "weekdays", wide=True)
+
     def quality(session):
         """What was read, the details of the file that can be changed, and the notes of the check."""
 
@@ -292,9 +314,15 @@ def make_profile_view(state):
         kpi_cards(session.analysis)
         warnings = sum(1 for notice in session.profile.notices if notice[0] == "warning")
 
-        with ui.tabs(value=state.profile_tab, on_change=lambda event: setattr(state, "profile_tab", event.value)).classes(
-                "w-full").mark("analysis-tabs") as tabs:
+        def switch_tab(event):
+            opening_patterns = event.value == PATTERNS and state.profile_tab != PATTERNS
+            state.profile_tab = event.value
+            if opening_patterns:
+                view.refresh()  # the patterns are built now, not before
+
+        with ui.tabs(value=state.profile_tab, on_change=switch_tab).classes("w-full").mark("analysis-tabs") as tabs:
             ui.tab(OVERVIEW, tr("analysis.tab.overview")).mark("analysis-tab-overview")
+            ui.tab(PATTERNS, tr("analysis.tab.patterns")).mark("analysis-tab-patterns")
             with ui.tab(QUALITY, tr("analysis.tab.quality")).mark("analysis-tab-quality"):
                 if warnings:
                     ui.badge(str(warnings)).props("color=warning floating").mark("analysis-quality-badge")
@@ -302,6 +330,9 @@ def make_profile_view(state):
         with ui.tab_panels(tabs, value=state.profile_tab).classes("w-full gap-4"):
             with ui.tab_panel(OVERVIEW).classes("gap-4").mark("analysis-panel-overview"):
                 overview(session.analysis)
+            with ui.tab_panel(PATTERNS).classes("gap-4").mark("analysis-panel-patterns"):
+                if state.profile_tab == PATTERNS:
+                    patterns(session.analysis)
             with ui.tab_panel(QUALITY).classes("gap-4").mark("analysis-panel-quality"):
                 quality(session)
 

@@ -592,3 +592,95 @@ async def test_a_new_file_begins_in_the_overview_even_if_the_data_tab_was_open_b
     await upload(user, content)
 
     assert field(user, "analysis-tabs").value == "overview"
+
+
+# ---------------------------------------------------------------------------
+# the usage patterns: heat map, typical days by season, weekdays
+# ---------------------------------------------------------------------------
+
+async def open_patterns(user: User):
+    field(user, "analysis-tabs").set_value("patterns")
+    await settle()
+
+
+async def test_the_usage_patterns_have_their_own_tab_between_the_overview_and_the_data(user: User):
+    await loaded(user)
+
+    assert [field(user, f"analysis-tab-{name}").props["label"] for name in ("overview", "patterns", "quality")] == [
+        "Overview", "Usage patterns", "Data quality"]
+
+
+async def test_the_patterns_are_built_only_when_their_tab_is_opened(user: User):
+    await loaded(user)
+    assert exists(user, "analysis-panel-patterns")
+    assert not any(exists(user, marker) for marker in ("analysis-heatmap", "analysis-seasonal", "analysis-weekday", "analysis-day-counts"))
+
+    await open_patterns(user)
+
+    assert field(user, "analysis-tabs").value == "patterns"
+    assert all(exists(user, marker) for marker in ("analysis-heatmap", "analysis-seasonal", "analysis-weekday", "analysis-day-counts"))
+
+
+async def test_the_heat_map_has_a_row_for_each_time_of_day_and_a_column_for_each_day_of_the_file(user: User):
+    await loaded(user)
+    await open_patterns(user)
+
+    z = field(user, "analysis-heatmap").figure["data"][0]["z"]
+
+    assert len(z) == 96 and len(z[0]) == 21 and all(value is not None for row in z for value in row)
+
+
+async def test_the_days_of_the_period_are_counted_and_the_count_follows_the_state_of_the_holidays(user: User):
+    content, _ = a_file(first="2023-01-02 00:00", last="2023-01-22 23:45")           # the 6th of January is a Friday
+    await loaded(user, content)
+    await open_patterns(user)
+    assert field(user, "analysis-day-counts").text == (
+        "Days in the period: Workday: 14 · Saturday: 3 · Sunday or holiday: 4 (holidays of Bavaria).")
+
+    field(user, "analysis-state").set_value("NW")
+    await settle()
+    await reading_done(user)
+
+    assert field(user, "analysis-tabs").value == "patterns"
+    assert field(user, "analysis-day-counts").text == (
+        "Days in the period: Workday: 15 · Saturday: 3 · Sunday or holiday: 3 (holidays of North Rhine-Westphalia).")
+
+
+async def test_a_profile_with_too_few_days_for_the_seasons_says_so_and_still_has_the_heat_map_and_the_weekdays(user: User):
+    await loaded(user, **dict(first="2024-02-05 00:00", last="2024-02-06 23:45"))
+    await open_patterns(user)
+
+    assert field(user, "analysis-seasonal-none").text == "For typical days by season, a type of day needs at least 3 days in that season."
+    assert len(field(user, "analysis-heatmap").figure["data"][0]["z"][0]) == 2 and exists(user, "analysis-weekday")
+    assert not exists(user, "analysis-seasonal")
+
+
+async def test_the_titles_of_the_three_charts_are_in_the_patterns_tab(user: User):
+    await loaded(user)
+    await open_patterns(user)
+
+    assert texts(user, "analysis-card-heatmap")[0] == "Load over the period"
+    assert texts(user, "analysis-card-seasonal")[0] == "Typical days by season" and texts(user, "analysis-card-weekday")[0] == "Mean load by weekday"
+
+
+async def test_the_language_switch_on_the_patterns_tab_builds_them_again_in_german(user: User):
+    await loaded(user)
+    await open_patterns(user)
+
+    await switched_to(user, "de")
+    await settle()
+
+    assert field(user, "analysis-tabs").value == "patterns" and field(user, "analysis-day-counts").text.startswith("Tage im Zeitraum: Werktag:")
+    assert texts(user, "analysis-card-heatmap")[0] == "Last über den Zeitraum" and field(user, "analysis-tab-patterns").props["label"] == "Verbrauchsmuster"
+
+
+async def test_going_back_to_the_overview_keeps_it_and_opening_the_patterns_again_builds_them_again(user: User):
+    await loaded(user)
+    await open_patterns(user)
+
+    field(user, "analysis-tabs").set_value("overview")
+    await settle()
+    assert exists(user, "analysis-typical") and field(user, "analysis-tabs").value == "overview"
+
+    await open_patterns(user)
+    assert exists(user, "analysis-heatmap")

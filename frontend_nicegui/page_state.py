@@ -49,7 +49,7 @@ class PageState:
         self.profile = None           # the ProfileSession of the load profile file (the project's load profile)
         self.profile_reading = False  # the file of the load profile is being read now
         self.profile_analysing = False  # the analysis of the profile is being worked out again (a choice was changed)
-        self.profile_tab = "overview"   # the tab of the analysis that is shown: "overview" or "quality"
+        self.profile_tab = "overview"  # the tab of the analysis that is shown: "overview", "patterns" or "quality"
         self.bulk_done = None         # (how many series, from which file) after the last file was used
         self.bulk_card = None         # the card for the file with all the series (a refreshable), once it is drawn
         self.opened = None            # an OpenedFile
