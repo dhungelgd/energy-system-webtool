@@ -1,5 +1,6 @@
 """The area of the load profile: load a file, answer what the file does not say, and see what the profile says: the key
-figures, the typical days, the duration curve, the months and a few observations, and what was read and what is wrong with it.
+figures, the typical days, the duration curve, the months, the heat map, the seasons, the peaks and a few observations, and
+what was read and what is wrong with it.
 The reading is in backend/load_profile.py, the analysis in backend/load_analysis.py, the state of one file in
 profile_session.py and the charts in analysis_charts.py; this file only builds the page."""
 
@@ -20,7 +21,19 @@ from frontend_nicegui.analysis_charts import (
     typical_days_figure,
     weekday_figure,
 )
-from frontend_nicegui.analysis_view import ALL_YEARS, day_counts_text, kpi_items, state_options, year_options
+from frontend_nicegui.analysis_view import (
+    ALL_YEARS,
+    CAP_MAX_SHARE,
+    CAP_MIN_SHARE,
+    cap_items,
+    cap_limit,
+    day_counts_text,
+    kpi_items,
+    near_peak_text,
+    peak_rows,
+    state_options,
+    year_options,
+)
 from frontend_nicegui.chart_style import as_chart
 from frontend_nicegui.profile_session import ProfileSession
 from frontend_nicegui.series_widgets import ACCEPT
@@ -29,7 +42,11 @@ logger = logging.getLogger(__name__)
 
 UNIT_ORDER = ("kW", "kWh", "W", "Wh", "MW", "MWh")                  # the units to choose from
 NOTICE_ICONS = {"warning": ("warning", "warning"), "info": ("info", "primary")}
-OVERVIEW, PATTERNS, QUALITY = "overview", "patterns", "quality"         # the tabs of the analysis
+OVERVIEW, PATTERNS, PEAKS, QUALITY = "overview", "patterns", "peaks", "quality"         # the tabs of the analysis
+PEAK_COLUMNS = {                                                                          # the columns of the table of peaks
+    "rank": "analysis.peaks.col.rank", "date": "analysis.peaks.col.date", "time": "analysis.peaks.col.time",
+    "power": "analysis.peaks.col.power", "daytype": "analysis.peaks.col.daytype", "season": "analysis.peaks.col.season",
+}
 
 
 def facts(profile, tr):
@@ -249,8 +266,7 @@ def make_profile_view(state):
                     ui.tooltip(item["help"]).classes("text-body2")
 
     def chart_card(marker, title, hint, figure, name, none_text=None, wide=False):
-        with ui.card().classes("w-full gap-2" if wide else "flex-1 gap-2").style("min-width: 26rem").mark(
-                f"analysis-card-{marker}"):
+        with ui.card().classes("w-full gap-2" if wide else "flex-1 gap-2").style("min-width: 26rem").mark(f"analysis-card-{marker}"):
             ui.label(title).classes("text-xl font-semibold")
             ui.label(hint).classes("text-grey text-sm")
             if figure is None:
@@ -295,6 +311,44 @@ def make_profile_view(state):
         chart_card("weekday", tr("analysis.chart.weekday_title"), tr("analysis.chart.weekday_hint"),
                    weekday_figure(analysis, tr), "weekdays", wide=True)
 
+    def peaks(analysis):
+        """The highest peaks, how rare the highest values are, and what is above a limit that the visitor chooses."""
+
+        tr = state.tr
+
+        @ui.refreshable
+        def capping_view():
+            share = state.profile_cap_share
+            ui.plotly(as_chart(duration_figure(analysis, tr, limit_kw=cap_limit(analysis, share)), "duration-capped")).classes(
+                "w-full").mark("analysis-cap-chart")
+            with ui.row().classes("w-full gap-4").mark("analysis-cap-items"):
+                for item in cap_items(analysis, share, tr):
+                    with ui.card().classes("flex-1 gap-1").style("min-width: 12rem").mark(f"analysis-cap-{item['key']}"):
+                        ui.label(item["label"]).classes("text-grey text-sm")
+                        ui.label(item["value"]).classes("text-lg font-semibold")
+
+        def change_share(event):
+            state.profile_cap_share = int(event.value)
+            capping_view.refresh()
+
+        columns = [{"name": name, "label": tr(key), "field": name, "align": "left"} for name, key in PEAK_COLUMNS.items()]
+
+        with ui.card().classes("w-full gap-2").mark("analysis-card-peaks"):
+            ui.label(tr("analysis.peaks.table_title")).classes("text-xl font-semibold")
+            ui.label(tr("analysis.peaks.table_hint")).classes("text-grey text-sm")
+            ui.table(columns=columns, rows=peak_rows(analysis, tr), row_key="rank").props("flat dense").classes("w-full").mark(
+                "analysis-peaks-table")
+            ui.label(near_peak_text(analysis, tr)).classes("text-grey").mark("analysis-peaks-near")
+
+        with ui.card().classes("w-full gap-2").mark("analysis-card-cap"):
+            ui.label(tr("analysis.peaks.cap_title")).classes("text-xl font-semibold")
+            ui.label(tr("analysis.peaks.cap_hint")).classes("text-grey text-sm")
+            ui.label(tr("analysis.peaks.cap_slider")).classes("text-sm")
+            ui.slider(min=CAP_MIN_SHARE, max=CAP_MAX_SHARE, step=1, value=state.profile_cap_share, on_change=change_share).props(
+                "label-always").classes("w-full").mark("analysis-cap-slider")
+            capping_view()
+            ui.label(tr("analysis.peaks.cap_note")).classes("text-grey text-sm").mark("analysis-cap-note")
+
     def quality(session):
         """What was read, the details of the file that can be changed, and the notes of the check."""
 
@@ -318,11 +372,12 @@ def make_profile_view(state):
             opening_patterns = event.value == PATTERNS and state.profile_tab != PATTERNS
             state.profile_tab = event.value
             if opening_patterns:
-                view.refresh()  # the patterns are built now, not before
+                view.refresh()                          # the patterns are built now, not before
 
         with ui.tabs(value=state.profile_tab, on_change=switch_tab).classes("w-full").mark("analysis-tabs") as tabs:
             ui.tab(OVERVIEW, tr("analysis.tab.overview")).mark("analysis-tab-overview")
             ui.tab(PATTERNS, tr("analysis.tab.patterns")).mark("analysis-tab-patterns")
+            ui.tab(PEAKS, tr("analysis.tab.peaks")).mark("analysis-tab-peaks")
             with ui.tab(QUALITY, tr("analysis.tab.quality")).mark("analysis-tab-quality"):
                 if warnings:
                     ui.badge(str(warnings)).props("color=warning floating").mark("analysis-quality-badge")
@@ -333,6 +388,8 @@ def make_profile_view(state):
             with ui.tab_panel(PATTERNS).classes("gap-4").mark("analysis-panel-patterns"):
                 if state.profile_tab == PATTERNS:
                     patterns(session.analysis)
+            with ui.tab_panel(PEAKS).classes("gap-4").mark("analysis-panel-peaks"):
+                peaks(session.analysis)
             with ui.tab_panel(QUALITY).classes("gap-4").mark("analysis-panel-quality"):
                 quality(session)
 

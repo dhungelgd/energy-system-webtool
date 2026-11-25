@@ -14,8 +14,10 @@ from backend.load_analysis import (
     TOP_PEAKS,
     AnalysisHint,
     AnalysisOptions,
+    Capping,
     analysis_text,
     analyze,
+    capping,
     default_year,
     years_of,
 )
@@ -562,3 +564,87 @@ def test_a_year_of_quarter_hours_is_analysed_in_a_few_seconds():
 
     assert time.time() - started < 20 and analysis.kpis.yearly and analysis.heatmap.values.shape == (365, 96)
     assert len(analysis.typical_days) >= 9 and len(analysis.months) == 12
+
+
+# ---------------------------------------------------------------------------
+# what is above a limit
+# ---------------------------------------------------------------------------
+
+def test_what_is_above_the_limit_of_the_peak_is_the_spike_and_nothing_else():
+    effect = capping(analyze(*week()), 100.0)
+
+    assert effect == Capping(limit_kw=100.0, reduction_kw=50.0, hours_above=1.0, energy_above_kwh=50.0, days_above=1, longest_hours=1.0)
+
+
+def test_a_limit_of_90_kw_has_the_whole_working_time_above_it_and_the_figures_can_be_worked_out_by_hand():
+    effect = capping(analyze(*week()), 90.0)
+
+    assert effect.hours_above == 40.0                                          # 5 days of 8 hours
+    assert effect.energy_above_kwh == 450.0                                    # 39 hours of 10 kW and one of 60 kW
+    assert effect.days_above == 5 and effect.longest_hours == 8.0 and effect.reduction_kw == 60.0
+
+
+def test_a_limit_just_above_the_base_load_has_nearly_all_the_energy_above_it():
+    effect = capping(analyze(*week()), 20.0)
+
+    assert effect.hours_above == 40.0 and effect.energy_above_kwh == 3250.0 and effect.reduction_kw == 130.0   # 39 x 80 + 130
+
+
+def test_a_limit_at_or_above_the_peak_has_nothing_above_it_and_cuts_nothing():
+    for limit in (150.0, 200.0):
+        effect = capping(analyze(*week()), limit)
+
+        assert (effect.hours_above, effect.energy_above_kwh, effect.days_above, effect.longest_hours, effect.reduction_kw) == (0.0, 0.0, 0, 0.0, 0.0)
+
+
+@pytest.mark.parametrize("freq", ["15min", "30min", "60min"])
+def test_the_figures_above_a_limit_do_not_depend_on_the_time_step(freq):
+    effect = capping(analyze(*week(freq)), 90.0)
+
+    assert (effect.hours_above, effect.energy_above_kwh, effect.days_above, effect.longest_hours) == (40.0, 450.0, 5, 8.0)
+
+
+def test_a_missing_value_is_not_above_a_limit_and_a_day_without_values_has_no_day_above():
+    series, step = week(spike=False)
+    series.iloc[24:48] = np.nan                                                # all of Tuesday
+
+    effect = capping(analyze(series, step), 90.0)
+
+    assert effect.hours_above == 32.0 and effect.energy_above_kwh == 320.0 and effect.days_above == 4
+
+
+def test_the_longest_time_above_the_limit_may_run_over_midnight_and_counts_the_days_it_touches():
+    index = pd.date_range("2023-02-06", periods=3 * 24, freq="60min", tz=ZONE)
+    values = np.full(len(index), 20.0)
+    values[22:30] = 100.0                                                      # from 22:00 on the first day to 6:00 on the second
+    values[60:62] = 100.0                                                      # two hours on the third day
+
+    effect = capping(analyze(pd.Series(values, index=index), 60), 50.0)
+
+    assert effect.longest_hours == 8.0 and effect.hours_above == 10.0 and effect.days_above == 3 and effect.energy_above_kwh == 500.0
+
+
+def test_a_limit_that_is_not_a_power_above_zero_is_refused():
+    analysis = analyze(*week())
+
+    for bad in (0, -5.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            capping(analysis, bad)
+
+
+def test_the_analysis_keeps_the_values_of_the_period_in_order_and_the_day_of_each():
+    series, step = week()
+
+    analysis = analyze(series, step)
+
+    assert list(analysis.values_kw) == list(series.to_numpy()) and len(analysis.day_numbers) == 168
+    assert analysis.day_numbers[0] == date(2023, 2, 6).toordinal() and analysis.day_numbers[-1] == date(2023, 2, 12).toordinal()
+
+
+def test_only_the_year_that_is_analysed_is_above_the_limit():
+    series = pd.Series(np.arange(2 * 365 * 24, dtype=float), index=pd.date_range("2022-01-01", periods=2 * 365 * 24, freq="60min", tz=ZONE))
+
+    analysis = analyze(series, 60, AnalysisOptions(year=2023))
+
+    assert len(analysis.values_kw) == 8760
+    assert capping(analysis, 15000.0).hours_above == 17519 - 15000                  # the values of 2023 are 8760 to 17519

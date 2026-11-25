@@ -3,10 +3,11 @@ holidays and of the period, and the cards of the key figures with their explanat
 to test."""
 
 from backend.holidays_de import DAY_TYPES
-from backend.load_analysis import YEAR_DAYS
-from frontend_nicegui.analysis_charts import DAY_TYPE_TEXTS
+from backend.load_analysis import PEAK_SHARE, YEAR_DAYS, capping
+from frontend_nicegui.analysis_charts import DAY_TYPE_TEXTS, SEASON_TEXTS
 
-ALL_YEARS = "all"                                 # the choice of the whole profile (the value of the year is None)
+ALL_YEARS = "all"                                    # the choice of the whole profile (the value of the year is None)
+CAP_MIN_SHARE, CAP_MAX_SHARE, CAP_DEFAULT_SHARE = 50, 100, 95          # the limit as a percentage of the peak
 
 STATE_TEXTS = {
     "BW": "state.BW", "BY": "state.BY", "BE": "state.BE", "BB": "state.BB", "HB": "state.HB", "HH": "state.HH",
@@ -80,3 +81,46 @@ def day_counts_text(analysis, tr):
     counts = " · ".join(f"{tr(DAY_TYPE_TEXTS[kind])}: {tr.integer(analysis.day_type_days[kind])}" for kind in DAY_TYPES)
 
     return tr("analysis.patterns.days", counts=counts, state=tr(STATE_TEXTS[analysis.options.state]))
+
+
+def peak_rows(analysis, tr):
+    """The highest peaks as rows of a table: rank, date, time, power, type of day and season (all text, in the language)."""
+
+    return [
+        {"rank": str(number), "date": peak.time.strftime(tr("result.chart.date_format")), "time": peak.time.strftime("%H:%M"),
+         "power": tr.number(round(peak.kw, 1)), "daytype": tr(DAY_TYPE_TEXTS[peak.day_type]), "season": tr(SEASON_TEXTS[peak.season])}
+        for number, peak in enumerate(analysis.peaks, start=1)
+    ]
+
+
+def cap_limit(analysis, share):
+    """The limit in kW for a share of the peak (a percentage from CAP_MIN_SHARE to CAP_MAX_SHARE)."""
+
+    return analysis.kpis.peak_kw * min(max(share, CAP_MIN_SHARE), CAP_MAX_SHARE) / 100
+
+
+def cap_items(analysis, share, tr):
+    """What is above the limit that a share of the peak gives, as a list of dicts with `key`, `label` and `value`."""
+
+    limit = cap_limit(analysis, share)
+    effect = capping(analysis, limit)
+    kw = lambda value: f"{tr.number(round(value, 1))} kW"                                         # noqa: E731
+    hours = lambda value: f"{tr.number(round(value, 1))} h"                                       # noqa: E731
+
+    return [
+        dict(key="limit", label=tr("analysis.peaks.cap_limit"), value=f"{kw(limit)} ({tr.number(share)} %)"),
+        dict(key="reduction", label=tr("analysis.peaks.cap_reduction"), value=kw(effect.reduction_kw)),
+        dict(key="hours", label=tr("analysis.peaks.cap_hours"), value=hours(effect.hours_above)),
+        dict(key="energy", label=tr("analysis.peaks.cap_energy"), value=f"{tr.integer(int(round(effect.energy_above_kwh)))} kWh"),
+        dict(key="days", label=tr("analysis.peaks.cap_days"), value=tr.integer(effect.days_above)),
+        dict(key="longest", label=tr("analysis.peaks.cap_longest"), value=hours(effect.longest_hours)),
+    ]
+
+
+def near_peak_text(analysis, tr):
+    """How rare the highest values are: the hours at which the load is near the peak (PEAK_SHARE of it), and the days."""
+
+    kpis = analysis.kpis
+
+    return tr("analysis.peaks.near", limit=tr.number(round(PEAK_SHARE * kpis.peak_kw, 1)), hours=tr.number(round(kpis.hours_near_peak, 1)),
+              days=tr.integer(kpis.days_near_peak))

@@ -684,3 +684,101 @@ async def test_going_back_to_the_overview_keeps_it_and_opening_the_patterns_agai
 
     await open_patterns(user)
     assert exists(user, "analysis-heatmap")
+
+
+# ---------------------------------------------------------------------------
+# the peaks: the highest peaks, how rare they are, what is above a limit
+# ---------------------------------------------------------------------------
+
+def peak_week_file():
+    """A week from a Monday of which the figures can be worked out by hand: 100 kW on workdays from 8:00 to 16:00, 20 kW at
+    other times, and 150 kW on the Wednesday from 10:00 to 11:00."""
+
+    index = starts("2023-02-06 00:00", "2023-02-12 23:45")
+    values = np.where((index.dayofweek < 5) & (index.hour >= 8) & (index.hour < 16), 100.0, 20.0)
+    values[(index.dayofweek == 2) & (index.hour == 10)] = 150.0
+
+    return render(index, values).encode()
+
+
+async def test_the_peaks_have_their_own_tab_after_the_patterns_and_before_the_data(user: User):
+    await loaded(user)
+
+    assert [field(user, f"analysis-tab-{name}").props["label"] for name in ("overview", "patterns", "peaks", "quality")] == [
+        "Overview", "Usage patterns", "Peaks", "Data quality"]
+
+
+async def test_the_table_of_the_highest_peaks_has_a_row_for_each_of_the_five_days(user: User):
+    await loaded(user, peak_week_file())
+
+    rows = field(user, "analysis-peaks-table").rows
+
+    assert len(rows) == 5
+    assert rows[0] == {"rank": "1", "date": "2023-02-08", "time": "10:00", "power": "150", "daytype": "Workday", "season": "Winter"}
+    assert [row["date"] for row in rows[1:]] == ["2023-02-06", "2023-02-07", "2023-02-09", "2023-02-10"]
+    assert [column["label"] for column in field(user, "analysis-peaks-table").columns] == [
+        "#", "Date", "Time", "Power (kW)", "Type of day", "Season"]
+
+
+async def test_how_rare_the_highest_values_are_is_said_in_a_sentence_under_the_table(user: User):
+    await loaded(user, peak_week_file())
+
+    assert field(user, "analysis-peaks-near").text == "At 90 % of the peak (135 kW) or more: 1 h (days with such values: 1)."
+
+
+async def test_the_limit_begins_at_95_percent_of_the_peak_and_the_figures_above_it_are_worked_out(user: User):
+    await loaded(user, peak_week_file())
+
+    assert field(user, "analysis-cap-slider").value == 95
+    assert texts(user, "analysis-cap-limit") == ["Limit", "142.5 kW (95 %)"]
+    assert texts(user, "analysis-cap-reduction") == ["The peak is cut by", "7.5 kW"]
+    assert texts(user, "analysis-cap-hours")[1] == "1 h" and texts(user, "analysis-cap-energy")[1] == "8 kWh"
+    assert texts(user, "analysis-cap-days")[1] == "1" and texts(user, "analysis-cap-longest")[1] == "1 h"
+
+
+async def test_moving_the_slider_changes_the_limit_the_chart_and_the_figures(user: User):
+    await loaded(user, peak_week_file())
+
+    field(user, "analysis-cap-slider").set_value(60)
+    await settle()
+
+    assert texts(user, "analysis-cap-limit")[1] == "90 kW (60 %)" and texts(user, "analysis-cap-reduction")[1] == "60 kW"
+    assert texts(user, "analysis-cap-hours")[1] == "40 h" and texts(user, "analysis-cap-energy")[1] == "450 kWh"
+    assert texts(user, "analysis-cap-days")[1] == "5" and texts(user, "analysis-cap-longest")[1] == "8 h"
+    names = [trace.get("name") for trace in field(user, "analysis-cap-chart").figure["data"]]
+    assert names[:2] == ["Limit: 90 kW", "Above the limit"]
+    assert field(user, "analysis-tabs").value == "overview"                              # the page was not drawn again
+
+
+async def test_the_limit_stays_when_the_tab_is_changed_and_when_the_language_is_switched(user: User):
+    await loaded(user, peak_week_file())
+    field(user, "analysis-cap-slider").set_value(70)
+    await settle()
+
+    field(user, "analysis-tabs").set_value("patterns")
+    await settle()
+    field(user, "analysis-tabs").set_value("peaks")
+    await settle()
+    assert field(user, "analysis-cap-slider").value == 70 and texts(user, "analysis-cap-limit")[1] == "105 kW (70 %)"
+
+    await switched_to(user, "de")
+    await settle()
+    assert field(user, "analysis-cap-slider").value == 70 and texts(user, "analysis-cap-limit")[1] == "105 kW (70 %)"
+
+
+async def test_the_peaks_tab_is_in_german_with_the_texts_of_the_table_and_of_the_figures(user: User):
+    await loaded(user, peak_week_file(), query="?area=profile&lang=de")
+
+    assert field(user, "analysis-tab-peaks").props["label"] == "Spitzen"
+    assert [column["label"] for column in field(user, "analysis-peaks-table").columns] == [
+        "Nr.", "Datum", "Uhrzeit", "Leistung (kW)", "Tagesart", "Jahreszeit"]
+    assert field(user, "analysis-peaks-table").rows[0]["date"] == "08.02.2023" and field(user, "analysis-peaks-table").rows[0]["daytype"] == "Werktag"
+    assert texts(user, "analysis-cap-limit") == ["Grenze", "142,5 kW (95 %)"] and texts(user, "analysis-cap-reduction")[0] == "Die Spitze sinkt um"
+    assert field(user, "analysis-peaks-near").text.startswith("Bei 90 % der Spitze")
+
+
+async def test_the_peaks_tab_says_what_the_figures_mean_and_that_no_costs_are_calculated(user: User):
+    await loaded(user, peak_week_file())
+
+    assert texts(user, "analysis-card-cap")[0] == "Cutting the peak" and "No costs are calculated." in texts(user, "analysis-card-cap")[1]
+    assert field(user, "analysis-cap-note").text.startswith("This energy is what a battery would have to deliver")

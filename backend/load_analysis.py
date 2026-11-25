@@ -159,6 +159,21 @@ class LoadAnalysis:
     heatmap: Heatmap
     hints: list
     day_type_days: dict = field(default_factory=dict)       # the days of each type in the period
+    values_kw: np.ndarray = None  # the power of each time step of the period in order, NaN where there is none
+    day_numbers: np.ndarray = None  # the local day of each time step as a day number (date.toordinal)
+
+
+@dataclass(frozen=True)
+class Capping:
+    """What is above a limit of the power: what a battery would have to deliver, or a shift of load to other times would
+    have to move, to bring the peak down to the limit."""
+
+    limit_kw: float
+    reduction_kw: float  # how much lower the peak would be (0 if the limit is not below the peak)
+    hours_above: float  # the hours with a value above the limit
+    energy_above_kwh: float  # the energy above the limit
+    days_above: int  # the days on which that happens
+    longest_hours: float  # the longest time in a row above the limit
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +326,35 @@ def _clock(minutes):
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
+def _longest_run(flags):
+    """The length of the longest run of True in a boolean array (0 if there is none)."""
+
+    flags = np.asarray(flags, dtype=bool)
+    if not flags.any():
+        return 0
+
+    padded = np.concatenate(([False], flags, [False]))
+    changes = np.flatnonzero(padded[1:] != padded[:-1])
+
+    return int((changes[1::2] - changes[::2]).max())
+
+
+def capping(analysis, limit_kw):
+    """What is above `limit_kw` in the analysed period (a Capping). A limit that is not above zero is refused (ValueError),
+    a limit at or above the peak has nothing above it."""
+
+    if not (limit_kw > 0 and np.isfinite(limit_kw)):
+        raise ValueError(f"the limit must be a power above zero, not '{limit_kw}'")
+
+    values, step = analysis.values_kw, analysis.step_minutes
+    above = values > limit_kw                                            # a missing value (NaN) is not above anything
+
+    return Capping(
+        limit_kw=float(limit_kw), reduction_kw=max(0.0, analysis.kpis.peak_kw - float(limit_kw)),
+        hours_above=float(above.sum() * step / 60), energy_above_kwh=float((values[above] - limit_kw).sum() * step / 60),
+        days_above=int(len(np.unique(analysis.day_numbers[above]))), longest_hours=_longest_run(above) * step / 60)
+
+
 def _hints(kpis, peaks, present):
     hints = []
 
@@ -380,4 +424,5 @@ def analyze(power_kw, step_minutes, options=None):
         weekdays=[float(weekdays[number]) if number in weekdays.index else None for number in range(7)],
         heatmap=_heatmap(frame, step), hints=_hints(kpis, peaks, present),
         day_type_days={kind: int(types.get(kind, 0)) for kind in DAY_TYPES},
+        values_kw=series.to_numpy(dtype=float), day_numbers=np.array([day.toordinal() for day in frame["date"]]),
     )

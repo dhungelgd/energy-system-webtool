@@ -24,7 +24,9 @@ DAY_TYPE_TEXTS = {WORKDAY: "analysis.daytype.workday", SATURDAY: "analysis.dayty
 BAND_OPACITY = 0.16                  # the middle half of the days is drawn see-through
 ENERGY_COLOR, ENERGY_COLOR_PALE = "#005D9D", "#9CC3E0"
 PEAK_COLOR = "#B25E00"
-BASE_COLORS = ("#2A9D6B", "#6B4FA3")          # the two base loads
+BASE_COLORS = ("#2A9D6B", "#6B4FA3")          # the two base loads#
+LIMIT_COLOR = "#C0392B"                       # the limit of the power, and what is above it
+LIMIT_OPACITY = 0.30
 HEIGHT = 380
 HEATMAP_HEIGHT = 460
 HOURS_BETWEEN_TICKS = 3
@@ -88,11 +90,19 @@ def typical_days_figure(analysis, tr=ENGLISH):
     return figure
 
 
-def duration_figure(analysis, tr=ENGLISH):
-    """The duration curve: how many hours the load is at least as high as a value, with the two base loads as lines."""
+def duration_figure(analysis, tr=ENGLISH, limit_kw=None):
+    """The duration curve: how many hours the load is at least as high as a value, with the two base loads as lines. With a
+    limit the part of the curve above it is shaded, and the limit is a line."""
 
     curve = analysis.duration
     figure = go.Figure()
+    if limit_kw is not None:
+        figure.add_trace(go.Scatter(
+            x=[0, curve.total_hours], y=[limit_kw, limit_kw], mode="lines", line=dict(color=LIMIT_COLOR, width=2, dash="dash"),
+            name=tr("analysis.chart.cap_line", value=tr.number(round(limit_kw, 1))), hoverinfo="skip"))
+        figure.add_trace(go.Scatter(
+            x=curve.hours, y=[max(value, limit_kw) for value in curve.kw], mode="lines", line=dict(width=0), fill="tonexty",
+            fillcolor=with_alpha(LIMIT_COLOR, LIMIT_OPACITY), name=tr("analysis.chart.above_limit"), hoverinfo="skip"))
     figure.add_trace(go.Scatter(
         x=curve.hours, y=curve.kw, mode="lines", line=dict(color=ENERGY_COLOR, width=3), showlegend=False,
         hovertemplate="%{x:,.0f} h<br>%{y:.1f} kW<extra></extra>"))

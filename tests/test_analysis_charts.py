@@ -334,3 +334,36 @@ def test_a_weekday_that_the_profile_does_not_have_is_not_drawn_and_the_names_are
 
     assert list(bars.x) == ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"] and len(bars.y) == 5
     assert weekday_figure(SimpleNamespace(weekdays=[None] * 7), EN) is None
+
+
+# ---------------------------------------------------------------------------
+# the duration curve with a limit
+# ---------------------------------------------------------------------------
+
+def test_a_limit_is_a_dashed_line_and_what_is_above_it_is_shaded():
+    analysis = analyze(*week())
+
+    figure = duration_figure(analysis, EN, limit_kw=90.0)
+    line, shade = figure.data[0], figure.data[1]
+
+    assert line.name == "Limit: 90 kW" and list(line.y) == [90.0, 90.0] and list(line.x) == [0, 168.0] and line.line.dash == "dash"
+    assert shade.name == "Above the limit" and shade.fill == "tonexty" and shade.fillcolor.startswith("rgba(192, 57, 43,")
+    assert list(shade.y) == [max(value, 90.0) for value in analysis.duration.kw] and list(shade.x) == list(analysis.duration.hours)
+
+
+def test_the_curve_and_the_base_loads_are_still_there_behind_the_limit():
+    figure = duration_figure(analyze(*week()), EN, limit_kw=90.0)
+
+    assert [trace.name for trace in figure.data] == [
+        "Limit: 90 kW", "Above the limit", None, "Base load (95 % value): 20 kW", "Base load (night): 20 kW"]
+    assert list(figure.data[2].y) == list(analyze(*week()).duration.kw) and figure.data[2].showlegend is False
+
+
+def test_without_a_limit_the_curve_is_as_before():
+    assert len(duration_figure(analyze(*week()), EN).data) == 3 and len(duration_figure(analyze(*week()), EN, limit_kw=None).data) == 3
+
+
+def test_the_limit_is_named_in_german_for_a_german_page():
+    figure = duration_figure(analyze(*week()), DE, limit_kw=142.5)
+
+    assert [figure.data[0].name, figure.data[1].name] == ["Grenze: 142,5 kW", "Über der Grenze"]

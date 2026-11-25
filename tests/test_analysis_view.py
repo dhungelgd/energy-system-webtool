@@ -5,7 +5,21 @@ import pandas as pd
 
 from backend.i18n import Translator
 from backend.load_analysis import AnalysisOptions, analyze
-from frontend_nicegui.analysis_view import ALL_YEARS, day_counts_text, kpi_items, state_options, year_options
+from frontend_nicegui.analysis_view import (
+    ALL_YEARS,
+    CAP_DEFAULT_SHARE,
+    CAP_MAX_SHARE,
+    CAP_MIN_SHARE,
+    cap_items,
+    cap_limit,
+    day_counts_text,
+    kpi_items,
+    near_peak_text,
+    peak_rows,
+    state_options,
+    year_options,
+)
+from frontend_nicegui.page_state import PageState
 from tests.test_load_analysis import ZONE, a_year, week
 
 DE, EN = Translator("de"), Translator("en")
@@ -131,3 +145,62 @@ def test_the_days_of_a_year_are_counted_by_the_type_of_day_and_the_state_of_the_
 
 def test_the_days_of_a_week_are_counted_too():
     assert day_counts_text(analyze(*week()), EN) == "Days in the period: Workday: 5 · Saturday: 1 · Sunday or holiday: 1 (holidays of Bavaria)."
+
+
+# ---------------------------------------------------------------------------
+# the peaks tab
+# ---------------------------------------------------------------------------
+
+def test_the_highest_peaks_are_rows_of_text_with_the_date_the_time_the_power_and_the_kind_of_day():
+    rows = peak_rows(analyze(*week()), EN)
+
+    assert len(rows) == 5
+    assert rows[0] == {"rank": "1", "date": "2023-02-08", "time": "10:00", "power": "150", "daytype": "Workday", "season": "Winter"}
+    assert rows[1] == {"rank": "2", "date": "2023-02-06", "time": "08:00", "power": "100", "daytype": "Workday", "season": "Winter"}
+    assert [row["rank"] for row in rows] == ["1", "2", "3", "4", "5"]
+
+
+def test_the_rows_are_in_german_with_the_date_and_the_names_of_the_language():
+    rows = peak_rows(analyze(*week()), DE)
+
+    assert rows[0] == {"rank": "1", "date": "08.02.2023", "time": "10:00", "power": "150", "daytype": "Werktag", "season": "Winter"}
+
+
+def test_a_peak_on_a_saturday_and_in_summer_names_its_kind_of_day_and_its_season():
+    series, step = week(start="2023-06-05")
+    series[(series.index.dayofweek == 5) & (series.index.hour == 11)] = 200.0
+
+    first = peak_rows(analyze(series, step), EN)[0]
+
+    assert (first["daytype"], first["season"], first["power"]) == ("Saturday", "Summer", "200")
+
+
+def test_the_limit_is_a_share_of_the_peak_and_a_share_outside_the_range_is_brought_into_it():
+    analysis = analyze(*week())
+
+    assert cap_limit(analysis, 95) == 142.5 and cap_limit(analysis, 60) == 90.0 and cap_limit(analysis, 100) == 150.0
+    assert cap_limit(analysis, 10) == 75.0 and cap_limit(analysis, 500) == 150.0 and (CAP_MIN_SHARE, CAP_MAX_SHARE) == (50, 100)
+
+
+def test_what_is_above_a_limit_is_shown_as_figures_that_can_be_worked_out_by_hand():
+    items = {item["key"]: item for item in cap_items(analyze(*week()), 60, EN)}
+
+    assert list(items) == ["limit", "reduction", "hours", "energy", "days", "longest"]
+    assert items["limit"]["value"] == "90 kW (60 %)" and items["reduction"]["value"] == "60 kW" and items["hours"]["value"] == "40 h"
+    assert items["energy"]["value"] == "450 kWh" and items["days"]["value"] == "5" and items["longest"]["value"] == "8 h"
+
+
+def test_the_figures_above_a_limit_are_in_german_and_a_limit_near_the_peak_has_little_above_it():
+    items = {item["key"]: item for item in cap_items(analyze(*week()), 95, DE)}
+
+    assert items["limit"]["label"] == "Grenze" and items["limit"]["value"] == "142,5 kW (95 %)" and items["reduction"]["value"] == "7,5 kW"
+    assert items["hours"]["value"] == "1 h" and items["energy"]["value"] == "8 kWh" and items["longest"]["label"] == "Längste Zeit am Stück über der Grenze"
+
+
+def test_how_rare_the_highest_values_are_is_said_in_a_sentence():
+    assert near_peak_text(analyze(*week()), EN) == "At 90 % of the peak (135 kW) or more: 1 h (days with such values: 1)."
+    assert near_peak_text(analyze(*week()), DE) == "Bei 90 % der Spitze (135 kW) oder mehr: 1 h (Tage mit solchen Werten: 1)."
+
+
+def test_the_slider_begins_at_the_share_that_the_state_of_the_page_has():
+    assert PageState().profile_cap_share == CAP_DEFAULT_SHARE == 95
