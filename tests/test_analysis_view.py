@@ -16,6 +16,7 @@ from frontend_nicegui.analysis_view import (
     kpi_items,
     near_peak_text,
     peak_rows,
+    profile_in_period,
     state_options,
     year_options,
 )
@@ -204,3 +205,13 @@ def test_how_rare_the_highest_values_are_is_said_in_a_sentence():
 
 def test_the_slider_begins_at_the_share_that_the_state_of_the_page_has():
     assert PageState().profile_cap_share == CAP_DEFAULT_SHARE == 95
+
+
+def test_the_profile_of_the_period_is_the_whole_profile_or_the_year_that_was_analysed():
+    series = pd.Series(np.arange(2 * 365 * 24, dtype=float), index=pd.date_range("2022-01-01", periods=2 * 365 * 24, freq="60min", tz=ZONE))
+
+    whole = analyze(series, 60, AnalysisOptions(year=None))
+    year = analyze(series, 60, AnalysisOptions(year=2023))
+
+    assert len(profile_in_period(series, whole)) == 2 * 8760
+    assert len(profile_in_period(series, year)) == 8760 and profile_in_period(series, year).index[0].year == 2023

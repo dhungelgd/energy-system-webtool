@@ -124,3 +124,9 @@ def near_peak_text(analysis, tr):
 
     return tr("analysis.peaks.near", limit=tr.number(round(PEAK_SHARE * kpis.peak_kw, 1)), hours=tr.number(round(kpis.hours_near_peak, 1)),
               days=tr.integer(kpis.days_near_peak))
+
+
+def profile_in_period(power_kw, analysis):
+    """The profile as the file has it, within the period that was analysed (the whole profile or one calendar year)."""
+
+    return power_kw if analysis.year is None else power_kw[power_kw.index.year == analysis.year]

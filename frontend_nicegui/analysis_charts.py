@@ -29,6 +29,7 @@ LIMIT_COLOR = "#C0392B"                       # the limit of the power, and what
 LIMIT_OPACITY = 0.30
 HEIGHT = 380
 HEATMAP_HEIGHT = 460
+PROFILE_HEIGHT = 420
 HOURS_BETWEEN_TICKS = 3
 SEASON_HOURS_BETWEEN_TICKS = 6               # three charts side by side are narrow
 HEATMAP_COLORS = [[0.0, "#EAF3FA"], [0.5, "#4C9BD8"], [1.0, "#14202B"]]
@@ -233,3 +234,20 @@ def weekday_figure(analysis, tr=ENGLISH):
         hovertemplate="%{x}<br>%{y:.1f} kW<extra></extra>"))
 
     return _layout(figure, None, tr("analysis.chart.mean_power"), tr, showlegend=False)
+
+
+def profile_figure(power_kw, tr=ENGLISH):
+    """The profile itself: every value of the file at its own time step as a line (a missing value is a gap in the line), with a
+    strip below to zoom in. The times are the wall clock of the profile."""
+
+    local = power_kw.index.tz_localize(None)
+    values = power_kw.to_numpy(dtype=float)
+    figure = go.Figure(go.Scattergl(
+        x=list(local.strftime("%Y-%m-%d %H:%M")), y=[None if np.isnan(value) else float(value) for value in values], mode="lines",
+        line=dict(color=ENERGY_COLOR, width=1.5), connectgaps=False, hovertemplate="%{x}<br>%{y:.2f} kW<extra></extra>"))
+
+    figure = _layout(figure, None, tr("result.chart.power"), tr, showlegend=False)
+    figure.update_layout(height=PROFILE_HEIGHT)
+    figure.update_xaxes(type="date", rangeslider=dict(visible=True, thickness=0.08), hoverformat=tr("profile.stamp_format"))
+
+    return figure

@@ -14,6 +14,8 @@
   "analysis.chart.monthly_hint": "Energie je Monat (Balken) und höchste Leistung (Linie). Helle Balken: der Monat ist nicht vollständig.",
   "analysis.chart.monthly_title": "Monate",
   "analysis.chart.peak_axis": "Spitze (kW)",
+  "analysis.chart.profile_hint": "Jeder Wert der Datei, ein Punkt je Zeitschritt ({step}). Zum Vergrößern den Streifen unter dem Diagramm ziehen oder im Diagramm einen Kasten aufziehen.",
+  "analysis.chart.profile_title": "Das Profil im Zeitverlauf",
   "analysis.chart.seasonal_hint": "Mittlere Last je Uhrzeit für jede Tagesart. Winter: 1. November bis 20. März, Sommer: 15. Mai bis 14. September, Übergang: dazwischen.",
   "analysis.chart.seasonal_none": "Für typische Tage nach Jahreszeit braucht eine Tagesart in der Jahreszeit mindestens 3 Tage.",
   "analysis.chart.seasonal_title": "Typische Tage nach Jahreszeit",

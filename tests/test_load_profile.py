@@ -1016,3 +1016,45 @@ def test_a_column_that_is_almost_empty_and_has_a_single_one_is_not_a_column_of_s
     profile = read("\n".join(lines) + "\n", options=ProfileOptions(value_column="Wert"))
 
     assert profile.unit is None and profile.needs == ["unit"]
+
+
+# ---------------------------------------------------------------------------
+# information lines above the table, and a file with several columns that could be the load
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("info", [
+    ["Kunde;Fellheim", "Zählpunkt;DE12345", "Messart;Wirkleistung"],
+    ["Anlage;1234"],
+    ["# Lastgang", "# Quelle: Netzbetreiber"],
+    ["Lastgang Kunde XY", "", "Zeitraum;2024"],
+])
+def test_a_profile_with_information_lines_above_it_has_its_column_and_its_unit(info):
+    index = starts("2024-02-05 00:00", "2024-02-06 23:45")
+    body = render(index, kw(index), header="Zeitstempel;Wirkleistung kW").splitlines()
+    text = "\n".join(list(info) + body) + "\n"
+
+    profile = read(text)
+
+    assert profile.ready and profile.value_column == "Wirkleistung kW" and profile.unit == "kW" and profile.rows == len(index)
+
+
+def test_a_profile_with_a_line_of_units_below_the_names_has_its_unit_from_that_line():
+    index = starts("2024-02-05 00:00", "2024-02-06 23:45")
+    body = render(index, kw(index), header="Zeitstempel;Wirkleistung").splitlines()
+    text = "\n".join(["Kunde;Fellheim", "Zählpunkt;DE1", body[0], "TT.MM.JJJJ hh:mm;kW"] + body[1:]) + "\n"
+
+    profile = read(text)
+
+    assert profile.ready and profile.value_column == "Wirkleistung" and profile.unit == "kW"
+
+
+def test_the_unit_of_the_chosen_column_is_known_from_its_name_when_the_file_has_several_columns_with_other_units():
+    lines = ["time,temperatur_aussen_c,pv_kw_je_kwp_ost,strom_niedrig_kwh,strom_hoch_kwh"]
+    lines += [f"2026-01-0{day} {hour:02d}:00,1.5,0.0,0.3,{0.8 + hour / 100}" for day in (1, 2, 3) for hour in range(24)]
+    text = "\n".join(lines) + "\n"
+
+    first = read(text)
+    chosen = read(text, options=ProfileOptions(value_column="strom_hoch_kwh"))
+
+    assert not first.ready and first.needs == ["value_column", "unit"] and first.value_column is None
+    assert chosen.ready and chosen.unit == "kWh" and chosen.step_minutes == 60 and chosen.energy_kwh() == pytest.approx(sum(0.8 + h / 100 for _ in range(3) for h in range(24)))

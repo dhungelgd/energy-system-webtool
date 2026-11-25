@@ -782,3 +782,97 @@ async def test_the_peaks_tab_says_what_the_figures_mean_and_that_no_costs_are_ca
 
     assert texts(user, "analysis-card-cap")[0] == "Cutting the peak" and "No costs are calculated." in texts(user, "analysis-card-cap")[1]
     assert field(user, "analysis-cap-note").text.startswith("This energy is what a battery would have to deliver")
+
+
+# ---------------------------------------------------------------------------
+# a file with several columns that could be the load (the file of a user)
+# ---------------------------------------------------------------------------
+
+def several_columns_file():
+    lines = ["time,temperatur_aussen_c,pv_kw_je_kwp_ost,strom_niedrig_kwh,strom_basis_kwh,strom_hoch_kwh"]
+    lines += [f"2026-01-0{day} {hour:02d}:00,1.5,0.0,0.3,0.5,{0.8 + hour / 100}" for day in (1, 2, 3, 4) for hour in range(24)]
+
+    return ("\n".join(lines) + "\n").encode()
+
+
+async def test_choosing_the_column_is_enough_when_the_unit_is_given_by_its_name(user: User):
+    await to_profile(user)
+    await upload(user, several_columns_file(), "zeitreihen.csv")
+    assert exists(user, "profile-ask-column") and not exists(user, "profile-ask-unit") and not exists(user, "analysis-kpis")
+
+    field(user, "profile-ask-column").set_value("strom_hoch_kwh")
+    await apply(user)
+
+    assert not user.notify.contains("Please fill in what is asked first.")
+    assert exists(user, "analysis-kpis") and field(user, "analysis-tabs").value == "overview"
+    assert texts(user, "analysis-kpi-energy")[1] == f"{EN.integer(round(sum(0.8 + h / 100 for _ in range(4) for h in range(24))))} kWh"
+
+
+async def test_the_button_still_asks_when_nothing_was_chosen_for_a_file_with_several_columns(user: User):
+    await to_profile(user)
+    await upload(user, several_columns_file(), "zeitreihen.csv")
+
+    user.find(marker="profile-ask-apply").click()
+    await settle()
+
+    assert user.notify.contains("Please fill in what is asked first.") and not exists(user, "analysis-kpis")
+
+
+# ---------------------------------------------------------------------------
+# the profile itself on the overview
+# ---------------------------------------------------------------------------
+
+async def test_the_overview_shows_the_profile_itself_with_a_point_for_every_value_of_the_file(user: User):
+    content, values = a_file(**THREE_WEEKS)
+    await loaded(user, content)
+
+    trace = field(user, "analysis-profile").figure["data"][0]
+
+    assert len(trace["y"]) == 21 * 96 and trace["y"][0] == pytest.approx(values[0], abs=1e-6) and trace["type"] == "scattergl"
+    assert texts(user, "analysis-card-profile")[0] == "The profile over time" and "one point for each time step (15 minutes)" in texts(user, "analysis-card-profile")[1]
+
+
+async def test_an_hourly_profile_is_drawn_with_a_point_for_each_hour(user: User):
+    await to_profile(user)
+    await upload(user, several_columns_file(), "zeitreihen.csv")
+    field(user, "profile-ask-column").set_value("strom_hoch_kwh")
+    await apply(user)
+
+    trace = field(user, "analysis-profile").figure["data"][0]
+
+    assert len(trace["y"]) == 4 * 24 and trace["x"][0] == "2026-01-01 00:00" and trace["y"][5] == pytest.approx(0.85)
+    assert "(1 hour)" in texts(user, "analysis-card-profile")[1]
+
+
+async def test_a_profile_of_two_years_shows_only_the_year_that_is_analysed_and_all_of_it_when_chosen(user: User):
+    text, index = two_years()
+    await loaded(user, text.encode())
+    assert len(field(user, "analysis-profile").figure["data"][0]["y"]) == 8760
+
+    field(user, "analysis-year").set_value("all")
+    await settle()
+    await reading_done(user)
+
+    assert len(field(user, "analysis-profile").figure["data"][0]["y"]) == 2 * 8760
+
+
+async def test_the_profile_chart_is_in_german_for_a_german_page(user: User):
+    await loaded(user, query="?area=profile&lang=de")
+
+    assert texts(user, "analysis-card-profile")[0] == "Das Profil im Zeitverlauf" and "Zeitschritt (15 Minuten)" in texts(user, "analysis-card-profile")[1]
+
+
+async def test_a_single_column_that_looks_like_something_else_can_be_chosen_as_the_load_and_then_its_unit_is_asked(user: User):
+    lines = ["time,pv_profile_1kwp"] + [f"2026-01-0{day} {hour:02d}:00,{0.1 + hour / 100}" for day in (1, 2, 3, 4) for hour in range(24)]
+    await to_profile(user)
+    await upload(user, ("\n".join(lines) + "\n").encode(), "ein_profil.csv")
+    assert exists(user, "profile-ask-column") and not exists(user, "analysis-kpis")
+
+    field(user, "profile-ask-column").set_value("pv_profile_1kwp")
+    await apply(user)
+    assert exists(user, "profile-ask-unit") and not exists(user, "analysis-kpis")                    # the name gives no unit
+
+    field(user, "profile-ask-unit").set_value("kW")
+    await apply(user)
+
+    assert exists(user, "analysis-kpis") and texts(user, "analysis-kpi-peak")[1] == "0.3 kW"                       # 0.1 + 23 / 100

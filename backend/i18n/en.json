@@ -14,6 +14,8 @@
   "analysis.chart.monthly_hint": "Energy of each month (bars) and highest power (line). Pale bars: the month is not complete.",
   "analysis.chart.monthly_title": "Months",
   "analysis.chart.peak_axis": "Peak (kW)",
+  "analysis.chart.profile_hint": "Every value of the file, one point for each time step ({step}). Drag the strip below the chart, or draw a box in the chart, to zoom in.",
+  "analysis.chart.profile_title": "The profile over time",
   "analysis.chart.seasonal_hint": "Mean load at each time of day for each type of day. Winter: November 1 to March 20, summer: May 15 to September 14, transition: in between.",
   "analysis.chart.seasonal_none": "For typical days by season, a type of day needs at least 3 days in that season.",
   "analysis.chart.seasonal_title": "Typical days by season",

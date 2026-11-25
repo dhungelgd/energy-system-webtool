@@ -1,6 +1,5 @@
 """The area of the load profile: load a file, answer what the file does not say, and see what the profile says: the key
-figures, the typical days, the duration curve, the months, the heat map, the seasons, the peaks and a few observations, and
-what was read and what is wrong with it.
+figures, the typical days, the duration curve, the months and a few observations, and what was read and what is wrong with it.
 The reading is in backend/load_profile.py, the analysis in backend/load_analysis.py, the state of one file in
 profile_session.py and the charts in analysis_charts.py; this file only builds the page."""
 
@@ -17,6 +16,7 @@ from frontend_nicegui.analysis_charts import (
     duration_figure,
     heatmap_figure,
     monthly_figure,
+    profile_figure,
     seasonal_figure,
     typical_days_figure,
     weekday_figure,
@@ -31,6 +31,7 @@ from frontend_nicegui.analysis_view import (
     kpi_items,
     near_peak_text,
     peak_rows,
+    profile_in_period,
     state_options,
     year_options,
 )
@@ -136,13 +137,21 @@ def make_profile_view(state):
 
         tr, profile = state.tr, session.profile
         touched = {}
+        ask_for_the_column = "value_column" in profile.needs or len(profile.candidates) > 1      # also for a single column that is not sure
 
         def touch(name):
             return lambda event: touched.__setitem__(name, event.value)
 
         async def apply():
+            # only what is on the page can be asked for: the unit is chosen after the column (the name of the column often
+            # gives it), the energy only for a column of shares
             wanted = {"value_column": "value_column", "unit": "unit", "energy": "energy_kwh"}
-            missing = [need for need in profile.needs if wanted[need] not in touched]
+            shown = {
+                "value_column": ask_for_the_column,
+                "unit": profile.value_column is not None and profile.unit != "share",
+                "energy": profile.unit == "share",
+            }
+            missing = [need for need in profile.needs if shown[need] and wanted[need] not in touched]
             if missing:
                 ui.notify(tr("profile.ask.incomplete"), type="warning")
                 return
@@ -160,7 +169,7 @@ def make_profile_view(state):
                 ui.label(tr("profile.ask.hint")).classes("text-warning").mark("profile-ask-hint")
 
             with ui.row().classes("w-full items-start gap-4"):
-                if len(profile.candidates) > 1:
+                if ask_for_the_column:
                     ui.select(
                         [c.name for c in profile.candidates], value=profile.value_column, label=tr("profile.ask.column"),
                         on_change=touch("value_column"),
@@ -284,9 +293,13 @@ def make_profile_view(state):
                     ui.icon("lightbulb", color="primary")
                     ui.label(analysis_text(hint, tr))
 
-    def overview(analysis):
+    def overview(session):
         tr = state.tr
+        analysis = session.analysis
 
+        chart_card("profile", tr("analysis.chart.profile_title"),
+                   tr("analysis.chart.profile_hint", step=StepText(session.profile.step_minutes).render(tr)),
+                   profile_figure(profile_in_period(session.profile.power_kw, analysis), tr), "profile", wide=True)
         with ui.row().classes("w-full gap-6 items-stretch"):
             chart_card("typical", tr("analysis.chart.typical_title"), tr("analysis.chart.typical_hint"),
                        typical_days_figure(analysis, tr), "typical-days", tr("analysis.chart.typical_none"))
@@ -384,7 +397,7 @@ def make_profile_view(state):
 
         with ui.tab_panels(tabs, value=state.profile_tab).classes("w-full gap-4"):
             with ui.tab_panel(OVERVIEW).classes("gap-4").mark("analysis-panel-overview"):
-                overview(session.analysis)
+                overview(session)
             with ui.tab_panel(PATTERNS).classes("gap-4").mark("analysis-panel-patterns"):
                 if state.profile_tab == PATTERNS:
                     patterns(session.analysis)

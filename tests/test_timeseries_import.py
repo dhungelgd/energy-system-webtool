@@ -639,3 +639,63 @@ def test_a_title_with_a_number_and_an_empty_line_above_the_column_names_is_not_t
     table = read_table(csv_file(text), "x.csv")
 
     assert list(table.df.columns) == ["Zeit", "Wert"] and table.df["Wert"].tolist() == [1, 2, 3, 4]
+
+
+# ---------------------------------------------------------------------------
+# information lines above the table
+# ---------------------------------------------------------------------------
+
+def _table_text(info, header, unit_line=None, sep=";", rows=6):
+    lines = list(info) + [header] + ([unit_line] if unit_line else [])
+    lines += [f"{day:02d}.02.2024 {hour:02d}:00{sep}{20 + hour},5" if sep == ";" else f"{day:02d}.02.2024 {hour:02d}:00{sep}{20 + hour}.5"
+              for day in (5, 6) for hour in range(rows // 2)]
+
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+@pytest.mark.parametrize("name, info, header, unit_line, sep", [
+    ("lines of other widths and an empty one", ["Lastgang Kunde XY", "Zählpunkt;DE0001", "Zeitraum;2024;bis;2025", ""], "Zeit;Leistung kW", None, ";"),
+    ("lines with as many cells as the table", ["Kunde;Fellheim", "Zählpunkt;DE12345"], "Zeit;Leistung kW", None, ";"),
+    ("a line with a number directly above the names", ["Anlage;1234"], "Zeit;Leistung kW", None, ";"),
+    ("comment lines", ["# Export vom 01.03.2024", "# Quelle: Netzbetreiber"], "Zeit;Leistung kW", None, ";"),
+    ("a line of units below the names", ["Lastgang"], "Zeit;Leistung kW", "TT.MM.JJJJ hh:mm;[kW]", ";"),
+    ("lines with as many cells and a line of units", ["Kunde;XY", "Zählpunkt;DE1", "Messart;Wirkleistung"], "Zeit;Leistung kW", "TT.MM.JJJJ hh:mm;kW", ";"),
+    ("commas", ["Kunde,XY,Halle 3", "Zeitraum,2024"], "Zeit,Leistung kW", None, ","),
+    ("tabs", ["Lastgang", "Kunde\tXY"], "Zeit\tLeistung kW", None, "\t"),
+])
+def test_information_lines_above_the_table_are_not_taken_for_the_names_of_the_columns(name, info, header, unit_line, sep):
+    table = read_table(_table_text(info, header, unit_line, sep), "datei.csv")
+
+    assert list(table.df.columns)[1] == "Leistung kW", name
+    assert len(table.df) == 6 and table.time is not None and table.time.step_minutes == 60
+
+
+def test_information_lines_above_a_sheet_of_excel_are_skipped_too():
+    import io
+
+    from openpyxl import Workbook
+
+    for rows in ([["Lastgang Kunde XY"], ["Zählpunkt", "DE0001"], []], [["Lastgang", None], ["Zählpunkt", "DE0001"]], [["Anlage", 1234]]):
+        book = Workbook()
+        sheet = book.active
+        for row in rows:
+            sheet.append(row)
+        sheet.append(["Zeit", "Leistung kW"])
+        for hour in range(6):
+            sheet.append([datetime.datetime(2024, 2, 5, hour), 20.5 + hour])
+        buffer = io.BytesIO()
+        book.save(buffer)
+
+        table = read_table(buffer.getvalue(), "datei.xlsx")
+
+        assert list(table.df.columns)[1] == "Leistung kW" and len(table.df) == 6, rows
+
+
+@pytest.mark.parametrize("cells, expected", [
+    (["TT.MM.JJJJ hh:mm", "kW"], True), (["[kW]"], True), (["kWh", "kvarh"], True), (["Datum", "°C"], True), (["YYYY-MM-DD hh:mm", "kW"], True),
+    (["Zeit", "Leistung kW"], False), (["Zählpunkt", "DE0001"], False), (["Messart", "Wirkleistung"], False), ([], False), ([None, ""], False),
+])
+def test_a_line_of_units_is_a_line_in_which_every_cell_is_a_unit_or_the_format_of_a_date(cells, expected):
+    from backend.timeseries_import import _is_unit_line
+
+    assert _is_unit_line(cells) is expected

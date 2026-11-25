@@ -19,6 +19,7 @@ from frontend_nicegui.analysis_charts import (
     heatmap_figure,
     month_label,
     monthly_figure,
+    profile_figure,
     seasonal_figure,
     typical_days_figure,
     weekday_figure,
@@ -367,3 +368,46 @@ def test_the_limit_is_named_in_german_for_a_german_page():
     figure = duration_figure(analyze(*week()), DE, limit_kw=142.5)
 
     assert [figure.data[0].name, figure.data[1].name] == ["Grenze: 142,5 kW", "Über der Grenze"]
+
+
+# ---------------------------------------------------------------------------
+# the profile itself
+# ---------------------------------------------------------------------------
+
+def test_the_profile_has_a_point_for_every_value_of_the_file_at_its_own_time_step():
+    hourly, _ = a_year()
+    quarter, _ = a_year(freq="15min")
+
+    for series, count in ((hourly, 8760), (quarter, 35040)):
+        trace = profile_figure(series, EN).data[0]
+
+        assert len(trace.x) == count and len(trace.y) == count and trace.type == "scattergl"
+        assert trace.x[0] == "2023-01-01 00:00" and trace.x[-1] == ("2023-12-31 23:00" if count == 8760 else "2023-12-31 23:45")
+
+
+def test_the_values_are_exactly_those_of_the_profile_and_a_missing_value_is_a_gap():
+    series, _ = week()
+    series.iloc[5] = np.nan
+    series.iloc[40] = 123.456789
+
+    trace = profile_figure(series, EN).data[0]
+
+    assert trace.y[5] is None and trace.y[40] == 123.456789 and trace.y[58] == 150.0 and trace.connectgaps is False   # Wednesday 10:00
+    assert sum(value is None for value in trace.y) == 1 and len(trace.y) == 168
+
+
+def test_the_times_are_the_wall_clock_so_the_hour_of_the_clock_change_appears_twice_in_autumn():
+    series, _ = a_year(level=40.0)
+
+    trace = profile_figure(series, EN).data[0]
+
+    assert list(trace.x).count("2023-10-29 02:00") == 2 and "2023-03-26 02:00" not in trace.x
+
+
+def test_a_strip_below_the_chart_zooms_and_the_axes_say_the_power_and_the_time_in_the_language():
+    english, german = profile_figure(week()[0], EN), profile_figure(week()[0], DE)
+
+    assert english.layout.xaxis.rangeslider.visible is True and english.layout.xaxis.type == "date"
+    assert english.layout.yaxis.title.text == "Power (kW)" and german.layout.yaxis.title.text == "Leistung (kW)"
+    assert english.layout.xaxis.hoverformat == "%Y-%m-%d %H:%M" and german.layout.xaxis.hoverformat == "%d.%m.%Y %H:%M"
+    assert profile_figure(week()[0], EN).layout.height == 420 and english.layout.showlegend is False

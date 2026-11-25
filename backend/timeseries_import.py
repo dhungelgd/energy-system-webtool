@@ -326,6 +326,19 @@ def _pad(grid):
     return [list(row) + [None] * (width - len(row)) for row in grid], width
 
 
+_UNIT_CELL_RE = re.compile(
+    r"^\s*[\[(]?\s*(?:[kmg]?w(?:h|p)?|[kmg]?var(?:h)?|[kmg]?va|%|°\s?c|eur|ct|tt\.mm\.j+(?:\s*hh:mm(?::ss)?)?|dd\.mm\.y+(?:\s*hh:mm(?::ss)?)?|"
+    r"y+-mm-dd(?:\s*hh:mm(?::ss)?)?|hh:mm(?::ss)?|datum|date)\s*[\])]?\s*$", re.IGNORECASE)
+
+
+def _is_unit_line(row):
+    """True if every cell of the row is a unit or the format of a date (a line below the names of the columns)."""
+
+    cells = [str(cell).strip() for cell in row if not _is_blank(cell)]
+
+    return bool(cells) and all(_UNIT_CELL_RE.match(cell) for cell in cells)
+
+
 def _find_table(grid):
     """Detect the header line and the first data line (0-based indices).
 
@@ -358,8 +371,24 @@ def _find_table(grid):
     if current:
         blocks.append(current)
     block = max(blocks, key=len)
-    candidates = [i for i in block if counts[i] == width] or block
 
+    # the first data row (two rows of data in a row, so that a line like 'Anlage;1234' above the table is not one) and the
+    # row of words just above it, skipping a line of units: lines above that, even with as many cells, are information
+    def is_data_row(i):
+        return counts[i] >= max(width - 1, 1) and share_of_data(i) >= 0.5
+
+    in_block = set(block)
+    data = next((i for i in block if is_data_row(i) and (i + 1 >= len(grid) or (i + 1 in in_block and is_data_row(i + 1)))), None)
+    if data is not None:
+        header = data - 1
+        while header >= 0 and (counts[header] == 0 or _is_unit_line(grid[header])):
+            header -= 1
+        if header >= 0 and counts[header] >= max(width - 1, 1) and share_of_data(header) < 0.5:
+            return header, data
+
+        return None, data
+
+    candidates = [i for i in block if counts[i] == width] or block
     first = next(
         (i for i in candidates if i + 1 < len(counts) and counts[i + 1] >= width - 1),
         candidates[0],
