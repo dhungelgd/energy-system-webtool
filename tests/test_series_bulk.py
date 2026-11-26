@@ -604,3 +604,71 @@ def test_the_names_of_the_columns_are_the_rules_of_the_backend_that_the_reading_
 
     assert series_bulk.kind_of is column_names.kind_of and series_bulk.fits is column_names.fits
     assert load_profile.kind_of is column_names.kind_of and column_names.RULES is RULES
+
+
+# ---------------------------------------------------------------------------
+# a column that the visitor worked with on another page
+# ---------------------------------------------------------------------------
+
+THREE_DEMANDS = {
+    "strom_niedrig_kwh": lambda i: 1.0, "strom_basis_kwh": lambda i: 2.0, "strom_hoch_kwh": lambda i: 3.0, "Waermebedarf": lambda i: 4.0,
+}
+
+
+def test_a_preferred_column_is_the_suggestion_for_its_component_before_the_name_and_the_other_components_do_not_take_it():
+    draft = draft_with("demand", "heat_demand")
+    plain, preferred = BulkSession(csv(THREE_DEMANDS), "a.csv"), BulkSession(csv(THREE_DEMANDS), "a.csv")
+    preferred.preferred = {"demand": "strom_hoch_kwh"}
+
+    plain.update(BulkSession.components_with_series(draft))
+    preferred.update(BulkSession.components_with_series(draft))
+
+    assert plain.mapping == {"demand": "strom_niedrig_kwh", "heat_demand": "Waermebedarf"}            # the first that fits
+    assert preferred.mapping == {"demand": "strom_hoch_kwh", "heat_demand": "Waermebedarf"}
+
+
+def test_what_the_visitor_chose_for_the_component_stays_over_the_preferred_column():
+    draft = draft_with("demand")
+    session = BulkSession(csv(THREE_DEMANDS), "a.csv")
+    session.preferred = {"demand": "strom_hoch_kwh"}
+    components = BulkSession.components_with_series(draft)
+    session.update(components)
+
+    session.choose("demand", "strom_basis_kwh")
+    session.update(components)
+
+    assert session.mapping["demand"] == "strom_basis_kwh"
+    session.choose("demand", None)
+    session.update(components)
+    assert session.mapping["demand"] is None                                  # 'none' is a choice too
+
+
+def test_a_preferred_column_for_a_component_that_is_not_there_or_that_the_file_does_not_have_is_ignored():
+    session = BulkSession(csv(THREE_DEMANDS), "a.csv")
+    session.preferred = {"demand": "strom_hoch_kwh", "pv": "gibt_es_nicht"}
+
+    session.update(BulkSession.components_with_series(draft_with("pv", "heat_demand")))
+    assert session.mapping == {"heat_demand": "Waermebedarf", "pv": None}               # no demand in the draft; no such column
+
+    session.preferred = {"demand": "gibt_es_nicht"}
+    session.update(BulkSession.components_with_series(draft_with("demand")))
+    assert session.mapping == {"demand": "strom_niedrig_kwh"}
+
+
+def test_a_preferred_column_is_not_given_to_another_component_even_if_its_name_fits_that_one():
+    session = BulkSession(csv({"Last_Solar": lambda i: 1.0, "Last": lambda i: 2.0}), "a.csv")
+    session.preferred = {"demand": "Last_Solar"}                              # the name says PV system, the visitor says demand
+
+    session.update(BulkSession.components_with_series(draft_with("demand", "pv")))
+
+    assert session.mapping == {"demand": "Last_Solar", "pv": None}
+
+
+def test_a_preferred_column_makes_its_component_a_suggestion_even_when_its_name_says_nothing():
+    session = BulkSession(csv({"Wert": lambda i: 1.0}), "a.csv")
+    assert session.suggested_components(draft_with()) == []
+
+    session.preferred = {"demand": "Wert"}
+
+    assert session.suggested_components(draft_with()) == ["demand"]
+    assert session.suggested_components(draft_with("demand")) == []

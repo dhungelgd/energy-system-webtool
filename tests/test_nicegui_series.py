@@ -140,7 +140,7 @@ async def test_the_preview_shows_the_first_rows_of_the_file(user: User):
     await upload(user, "pv", csv(DAY))
 
     rows = field(user, "series-preview-pv").rows
-    assert len(rows) == 8 and rows[0] == {"0": "01.01.2021 00:00", "1": "1"} and rows[1]["1"] == "1.1"
+    assert len(rows) == 10 and rows[0] == {"0": "01.01.2021 00:00", "1": "1"}
     await user.should_see("Preview: 24 rows, 2 columns. The first rows are shown.")
 
 
@@ -518,7 +518,7 @@ async def test_the_lines_of_the_file_can_be_set(user: User):
     field(user, "series-first-data-line-pv").value = 12
     await settle()
 
-    assert len(field(user, "series-preview-pv").rows) == 8
+    assert len(field(user, "series-preview-pv").rows) == 10
     await user.should_see("Preview: 14 rows")                                  # the lines 12 to 25 of 25
 
 

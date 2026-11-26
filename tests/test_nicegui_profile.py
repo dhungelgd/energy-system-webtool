@@ -1187,3 +1187,102 @@ async def test_the_overview_of_the_sheets_is_in_german_for_a_german_page(user: U
     assert texts(user, "profile-sheets")[0].startswith("Jedes Blatt der Datei.") and field(user, "profile-sheets").props["label"] == "Was auf den Blättern steht"
     assert [column["label"] for column in field(user, "profile-sheets-table").columns][:3] == ["Blatt", "Zeilen", "Spalten mit Zahlen"]
     assert rows[1]["period"] == "05.02.2022 – 06.02.2022" and rows[2]["note"] == "wird ausgewertet" and rows[0]["note"] == "nicht lesbar"
+
+
+# ---------------------------------------------------------------------------
+# what the file contains, as soon as it is loaded
+# ---------------------------------------------------------------------------
+
+async def test_what_the_file_contains_is_shown_as_soon_as_it_is_loaded_with_its_columns_and_the_first_10_rows(user: User):
+    content, values = a_file(**THREE_WEEKS)
+    await loaded(user, content)
+
+    assert exists(user, "profile-contents") and field(user, "profile-contents").value is True
+    columns = field(user, "profile-columns").rows
+    assert len(columns) == 1 and columns[0]["values"] == EN.integer(21 * 96) and columns[0]["note"] == "analysed now"
+    assert len(field(user, "series-preview-profile").rows) == 10
+    assert "Preview: 2,016 rows, 2 columns. The first rows are shown." in texts(user, "profile-contents")
+    assert any("time step 15 minutes" in line for line in texts(user, "profile-contents"))
+
+
+async def test_the_columns_say_what_their_names_look_like_and_which_one_is_analysed(user: User):
+    await to_profile(user)
+    await upload(user, several_columns_file(), "zeitreihen.csv")
+    assert [row["note"] for row in field(user, "profile-columns").rows] == ["", "", "", "", ""]                # nothing is analysed yet
+
+    field(user, "profile-ask-column").set_value("strom_hoch_kwh")
+    await apply(user)
+
+    rows = field(user, "profile-columns").rows
+    assert [row["column"] for row in rows] == ["temperatur_aussen_c", "pv_kw_je_kwp_ost", "strom_niedrig_kwh", "strom_basis_kwh", "strom_hoch_kwh"]
+    assert [row["kind"] for row in rows] == ["not recognised", "PV system", "Electricity demand", "Electricity demand", "Electricity demand"]
+    assert [row["note"] for row in rows] == ["", "", "", "", "analysed now"]
+    assert [column["label"] for column in field(user, "profile-columns").columns] == ["Column", "Values", "Looks like", "Note"]
+
+
+async def test_the_contents_follow_the_sheet_that_is_chosen(user: User):
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+    assert field(user, "profile-columns").rows[0]["values"] == "288" and len(field(user, "series-preview-profile").rows) == 10
+    before = field(user, "series-preview-profile").rows[0]
+
+    field(user, "series-sheet-profile").set_value("2022")
+    await settle()
+    await reading_done(user)
+
+    assert field(user, "profile-columns").rows[0]["values"] == "192"
+    assert field(user, "series-preview-profile").rows[0] != before and "05.02.2022" in field(user, "series-preview-profile").rows[0]["0"]
+
+
+async def test_a_visitor_who_closes_the_box_finds_it_closed_after_the_page_is_drawn_again(user: User):
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+    field(user, "profile-contents").set_value(False)
+    await settle()
+
+    field(user, "series-sheet-profile").set_value("2022")
+    await settle()
+    await reading_done(user)
+
+    assert field(user, "profile-contents").value is False and exists(user, "profile-columns")
+
+
+async def test_the_contents_say_when_the_date_and_the_time_of_day_were_in_two_columns(user: User):
+    from tests.test_shared_file import two_column_file
+
+    content, _ = two_column_file()
+    await to_profile(user)
+    await upload(user, content, "netz.csv")
+
+    lines = texts(user, "profile-contents")
+    assert any("time of day in the column 'Uhrzeit'" in line for line in lines) and any("time step 15 minutes" in line for line in lines)
+    assert [row["column"] for row in field(user, "profile-columns").rows] == ["Wirkleistung kW"]
+
+
+async def test_the_contents_are_there_for_a_file_that_asks_a_question_and_for_one_that_has_an_error_and_not_for_one_that_cannot_be_read(user: User):
+    content, _ = a_file(**THREE_WEEKS)
+    await loaded(user, content)
+
+    field(user, "series-delimiter-profile").set_value(",")                              # a profile error, the file is still readable
+    await settle()
+    await reading_done(user)
+    assert exists(user, "profile-error") and exists(user, "profile-contents") and exists(user, "series-preview-profile")
+
+    user.find(marker="profile-settings-reset").click()
+    await settle()
+    await reading_done(user)
+    field(user, "series-encoding-profile").set_value("utf-16")                          # the file cannot be read
+    await settle()
+    await reading_done(user)
+
+    assert exists(user, "profile-error") and not exists(user, "profile-contents")
+
+
+async def test_the_contents_are_in_german_for_a_german_page(user: User):
+    await loaded(user, query="?area=profile&lang=de")
+
+    german = Translator("de")
+    assert field(user, "profile-contents").props["label"] == "Was die Datei enthält"
+    assert [column["label"] for column in field(user, "profile-columns").columns] == ["Spalte", "Werte", "Sieht aus wie", "Hinweis"]
+    assert field(user, "profile-columns").rows[0]["note"] == german("profile.sheets.current") == "wird ausgewertet"
+    assert any(line.startswith("Vorschau:") for line in texts(user, "profile-contents"))

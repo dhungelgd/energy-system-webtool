@@ -2,10 +2,12 @@
 holidays and of the period, and the cards of the key figures with their explanations. No NiceGUI code in here, so it is easy
 to test."""
 
+from backend.column_names import kind_of
 from backend.holidays_de import DAY_TYPES
 from backend.load_analysis import PEAK_SHARE, YEAR_DAYS, capping
 from backend.timeseries_import import StepText
 from frontend_nicegui.analysis_charts import DAY_TYPE_TEXTS, SEASON_TEXTS
+from frontend_nicegui.names import component_label
 
 ALL_YEARS = "all"                                    # the choice of the whole profile (the value of the year is None)
 CAP_MIN_SHARE, CAP_MAX_SHARE, CAP_DEFAULT_SHARE = 50, 100, 95          # the limit as a percentage of the peak
@@ -156,3 +158,21 @@ def sheet_rows(infos, current, tr):
             "step": StepText(int(round(info.step_minutes))).render(tr) if info.step_minutes else "", "note": note})
 
     return rows
+
+
+FILE_COLUMNS = {                                     # the columns of the table of the columns of a file
+    "column": "bulk.col.column", "values": "bulk.col.values", "kind": "bulk.col.kind", "note": "profile.sheets.col.note",
+}
+
+
+def column_rows(file, analysed, tr):
+    """A row of text for each column of numbers of the file (an UploadSession): how many values it has, what its name looks like,
+    and a note for the column that is analysed."""
+
+    frame = file.table.df
+
+    return [{
+        "column": column, "values": tr.integer(int(frame[column].notna().sum())),
+        "kind": component_label(tr, kind_of(column)) if kind_of(column) is not None else tr("bulk.kind.unknown"),
+        "note": tr("profile.sheets.current") if column == analysed else "",
+    } for column in file.columns()]

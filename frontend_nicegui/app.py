@@ -1113,7 +1113,7 @@ def home_page():
             start_card("example", "menu_book", tr("start.example.title"), tr("start.example.text"),
                        tr("start.example.button"), open_example)
 
-    profile_view = make_profile_view(state)
+    profile_view = make_profile_view(state, open_area=show_area)
 
     @ui.refreshable
     def content():

@@ -30,6 +30,7 @@ class ProfileSession:
         self.sheet_info = None          # what each sheet holds (SheetInfo), once it was worked out: it takes a moment
         self._sheet_info_options = None # the settings of the import that it was worked out with, without the sheet
         self.sheets_open = False        # the box with what is on the sheets is open (for the page)
+        self.contents_open = True       # the box with what the file contains is open (for the page): at first it is
         self.sheet_loading = False      # the sheets are being read now (for the page)
         self.choices = {}               # what the visitor decided: some of CHOICES
         self.profile = None             # the LoadProfile that was read (ready or not)

@@ -60,6 +60,8 @@ NOTICES = {
     "duplicates": (b"t;v\n2021-01-01 00:00;1\n2021-01-01 01:00;2\n2021-01-01 01:00;3\n2021-01-01 02:00;4\n", "x.csv", None),
     "gaps": (b"t;v\n2021-01-01 00:00;1\n2021-01-01 01:00;2\n2021-01-01 03:00;3\n2021-01-01 04:00;4\n", "x.csv", None),
     "no_date_column": (b"a;b\n1;2\n3;4\n5;6\n", "x.csv", None),
+    "time_joined": (b"Datum;Uhrzeit;v\n05.02.2024;00:00;1\n05.02.2024;01:00;2\n05.02.2024;02:00;3\n", "x.csv", None),
+    "time_unusable": (b"t;v\n2021-01-01;1\n2021-01-01;2\n2021-01-01;3\n", "x.csv", None),
     "dates_unreadable": (("t;v\n" + hours(20) + "2021-13-45 00:00;99\n").encode(), "x.csv", None),
     "not_numbers": (("t;v\n" + "".join(f"{h};{h}\n" for h in range(10)) + "10;abc\n").encode(), "x.csv", None),
     "empty_values": (b"a;b\n1;2\n2;\n3;4\n4;5\n", "x.csv", None),

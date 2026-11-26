@@ -54,7 +54,6 @@ DROPPED_IMPORT_CODES = {"time_info", "time_step_not_hourly", "unsorted", "duplic
 
 _UNIT_RE = re.compile(r"(?<![a-zA-Z])(mwh|kwh|wh|mw|kw)(?![a-zA-Z])", re.IGNORECASE)
 _BRACKET_W_RE = re.compile(r"[\[(]\s*w\s*[\])]", re.IGNORECASE)
-_TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$")
 _NOT_THE_LOAD_RE = re.compile(
     r"blind|kvar|reactive|status|qualit|flag|stand\b|z[aä]hler|temperatur|\btemp\b|nummer|\bid\b", re.IGNORECASE)
 _THE_LOAD_RE = re.compile(
@@ -181,7 +180,6 @@ class ProfileOptions:
     stamp_at: str = None             # "start" or "end": what a time means for its time step
     timezone: str = DEFAULT_ZONE
     date_column: str = None
-    time_column: str = None          # the column with the time of day, if it is not in the column of the date
     energy_kwh: float = None         # the energy that a column of shares (adding up to 1) stands for
 
     def __post_init__(self):
@@ -249,30 +247,6 @@ class LoadProfile:
 # the time
 # ---------------------------------------------------------------------------
 
-def _time_of_day(values):
-    """The time of day of each text ('00:15', '24:00') as a length of time; NaT if it is not one."""
-
-    parts = pd.Series(values, dtype="string").str.extract(_TIME_RE)
-    hours, minutes = pd.to_numeric(parts[0]), pd.to_numeric(parts[1])
-    seconds = pd.to_numeric(parts[2]).fillna(0)
-    valid = (hours <= 24) & (minutes <= 59) & ~((hours == 24) & ((minutes > 0) | (seconds > 0)))
-
-    return pd.to_timedelta((hours * 3600 + minutes * 60 + seconds).where(valid), unit="s")
-
-
-def _time_of_day_column(df, skip):
-    """The first column of texts that are almost all times of the day, or None."""
-
-    for name in df.columns:
-        if name == skip or pd.api.types.is_numeric_dtype(df[name]) or pd.api.types.is_datetime64_any_dtype(df[name]):
-            continue
-        present = df[name].dropna().astype(str)
-        if len(present) and present.str.match(_TIME_RE).mean() >= 0.9:
-            return name
-
-    return None
-
-
 def _stamps(df, options):
     """The time of each row (as the file writes it, no time zone), and the columns that it came from."""
 
@@ -284,19 +258,7 @@ def _stamps(df, options):
     if date_name is None or df[date_name].notna().sum() == 0:
         raise ProfileFileError("no_time")
 
-    dates = df[date_name]
-    present = dates.dropna()
-    names = [date_name]
-
-    if (present == present.dt.normalize()).all():               # only days: the time of the day may be in a column of its own
-        time_name = options.time_column or _time_of_day_column(df, date_name)
-        if options.time_column is not None and options.time_column not in df.columns:
-            raise ProfileFileError("column_missing", column=options.time_column)
-        if time_name is not None:
-            names.append(time_name)
-            return dates.dt.normalize() + _time_of_day(df[time_name]), names
-
-    return dates, names
+    return df[date_name], [date_name]                           # the reader has joined a date and a time of day in two columns
 
 
 def _step_minutes(unique_stamps):

@@ -26,7 +26,7 @@ from backend.series_input import (
 )
 from backend.timeseries_import import ImportOptions, TimeSeriesFileError, read_table
 
-PREVIEW_ROWS = 8
+PREVIEW_ROWS = 10
 
 # a change of one of these changes the line numbers, so the detected lines are used again
 LAYOUT_OPTIONS = ("encoding", "delimiter", "decimal", "sheet")

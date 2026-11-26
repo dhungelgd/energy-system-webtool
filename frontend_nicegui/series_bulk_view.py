@@ -12,12 +12,13 @@ is added later takes its column from the same file. The upload of a single serie
 from nicegui import events, ui
 
 from backend.series_input import PRICE_UNITS
-from backend.timeseries_import import import_text
+from backend.timeseries_import import StepText, import_text
 from frontend_nicegui.draft import MAX_STEPS
 from frontend_nicegui.names import component_label, display_name
 from frontend_nicegui.series_bulk import BulkSession
 from frontend_nicegui.series_session import START_FILE, START_SCENARIO
 from frontend_nicegui.series_widgets import ACCEPT, notice_line, preview_block, settings_box, sheet_select
+from frontend_nicegui.shared_file import bulk_from_profile, is_the_file_of
 
 NO_COLUMN = "__none__"                      # the choice 'no column' in a selection (the columns are texts too)
 
@@ -49,6 +50,13 @@ def render_bulk(state, tr, on_series_change, on_components, on_period):
 
     def remove_file():
         state.bulk = None
+        changed()
+
+    def use_profile_file():
+        """The file of the load profile page, so that it need not be loaded again."""
+
+        state.bulk = bulk_from_profile(state.profile)
+        state.bulk_done = None
         changed()
 
     def decide(name, value):
@@ -237,6 +245,11 @@ def render_bulk(state, tr, on_series_change, on_components, on_period):
             for notice in session.master.table.messages:
                 notice_line(notice, tr)
 
+            axis = session.master.table.time
+            if session.preferred.get("demand") and axis is not None and axis.step_minutes < 60:
+                ui.label(tr("bulk.peak_note", step=StepText(int(round(axis.step_minutes))).render(tr))).classes(
+                    "text-grey text-sm").mark("series-bulk-peak-note")
+
             if components:
                 assignment(session, components)
             else:
@@ -264,6 +277,10 @@ def render_bulk(state, tr, on_series_change, on_components, on_period):
             ui.upload(
                 label=tr("bulk.upload"), on_upload=receive, auto_upload=True, max_files=1,
             ).props(f"accept={ACCEPT} flat bordered").classes("w-full").mark("series-bulk-upload")
+
+            if state.profile is not None and state.profile.file.readable and not is_the_file_of(state.bulk, state.profile):
+                ui.button(tr("bulk.from_profile", name=state.profile.filename), icon="description", on_click=use_profile_file).props(
+                    "outline no-caps").mark("series-bulk-from-profile")
 
             if state.bulk is not None:
                 prepare(state.bulk, components)

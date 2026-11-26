@@ -257,3 +257,43 @@ def test_when_the_sheet_that_is_read_now_has_a_problem_the_note_says_both_and_wi
 
     assert sheet_rows(sheet_infos(), "Zahlen", EN)[3]["note"] == "analysed now. no dates and times found"
     assert all("analysed now" not in row["note"] for row in sheet_rows(sheet_infos(), None, EN))
+
+
+# ---------------------------------------------------------------------------
+# what the file contains
+# ---------------------------------------------------------------------------
+
+def a_file_with_columns(gaps=0):
+    from frontend_nicegui.series_session import UploadSession
+
+    lines = ["time,temperatur_aussen_c,pv_kw_je_kwp_ost,strom_niedrig_kwh,strom_hoch_kwh,Notiz"]
+    lines += [f"2026-01-0{day} {hour:02d}:00,1.5,0.0,0.3,{'' if gaps and day == 1 and hour < gaps else 0.8},Halle" for day in (1, 2) for hour in range(24)]
+
+    return UploadSession(("\n".join(lines) + "\n").encode(), "datei.csv")
+
+
+def test_each_column_of_numbers_is_a_row_with_its_values_what_its_name_looks_like_and_a_note_for_the_analysed_one():
+    from frontend_nicegui.analysis_view import column_rows
+
+    rows = column_rows(a_file_with_columns(), "strom_hoch_kwh", EN)
+
+    assert [row["column"] for row in rows] == ["temperatur_aussen_c", "pv_kw_je_kwp_ost", "strom_niedrig_kwh", "strom_hoch_kwh"]     # not 'Notiz'
+    assert [row["kind"] for row in rows] == ["not recognised", "PV system", "Electricity demand", "Electricity demand"]
+    assert [row["note"] for row in rows] == ["", "", "", "analysed now"] and all(row["values"] == "48" for row in rows)
+
+
+def test_the_values_of_a_column_are_the_filled_cells_and_no_column_is_analysed_when_none_is_given():
+    from frontend_nicegui.analysis_view import column_rows
+
+    rows = {row["column"]: row for row in column_rows(a_file_with_columns(gaps=5), None, EN)}
+
+    assert rows["strom_hoch_kwh"]["values"] == "43" and rows["strom_niedrig_kwh"]["values"] == "48"
+    assert all(row["note"] == "" for row in rows.values())
+
+
+def test_the_rows_of_the_columns_are_in_german():
+    from frontend_nicegui.analysis_view import column_rows
+
+    rows = column_rows(a_file_with_columns(), "strom_hoch_kwh", DE)
+
+    assert rows[0]["kind"] == "nicht erkannt" and rows[1]["kind"] == "PV-Anlage" and rows[3]["note"] == "wird ausgewertet"

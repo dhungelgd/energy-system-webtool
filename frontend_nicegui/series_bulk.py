@@ -60,6 +60,8 @@ class BulkSession:
         self.mapping = {}                                   # component key -> column, or None for 'none'
         self.decided = set()                                # the components whose column the visitor chose himself
         self.applied = {}                                   # component key -> (column, choices) when its series was taken
+        self.preferred = {}                                 # component key -> the column that the visitor worked with on another
+                                                            # page (the load profile): the suggestion takes it before the name
 
     # ----- the file ----------------------------------------------------------
 
@@ -112,6 +114,9 @@ class BulkSession:
         in which they are added. A column suggests one component only (as in the assignment)."""
 
         found = guess(PRIORITY, self.columns())
+        for key, column in self.preferred.items():
+            if column in self.columns():
+                found[key] = column
         present = {component.template for component in draft.components()}
 
         return [key for key in ADD_ORDER if found.get(key) is not None and key not in present]
@@ -145,7 +150,11 @@ class BulkSession:
 
         chosen = {key: self.mapping[key] for key in self.decided}
         taken = {column for column in chosen.values() if column is not None}
-        self.mapping = {**chosen, **guess([key for key in keys if key not in self.decided], columns, taken=taken)}
+        preset = {key: column for key, column in self.preferred.items()
+                  if key in keys and key not in self.decided and column in columns and column not in taken}
+        taken |= set(preset.values())
+        rest = [key for key in keys if key not in self.decided and key not in preset]
+        self.mapping = {**chosen, **preset, **guess(rest, columns, taken=taken)}
 
     def choose(self, key, column):
         """The visitor chose a column for the component (None: no column)."""

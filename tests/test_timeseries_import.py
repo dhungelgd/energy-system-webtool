@@ -699,3 +699,128 @@ def test_a_line_of_units_is_a_line_in_which_every_cell_is_a_unit_or_the_format_o
     from backend.timeseries_import import _is_unit_line
 
     assert _is_unit_line(cells) is expected
+
+
+# ---------------------------------------------------------------------------
+# the date in one column and the time of day in another
+# ---------------------------------------------------------------------------
+
+def _two_columns(rows, header="Datum;Uhrzeit;Leistung kW", sep=";"):
+    return ("\n".join([header] + [sep.join(row) for row in rows]) + "\n").encode("utf-8")
+
+
+def test_a_date_and_a_time_of_day_in_two_columns_are_read_as_one_time_with_a_step_of_the_time_of_day():
+    rows = [("05.02.2024", f"{hour:02d}:{minute:02d}", f"{20 + hour},5") for hour in range(3) for minute in (0, 15, 30, 45)]
+
+    table = read_table(_two_columns(rows), "datei.csv")
+
+    assert list(table.df.columns) == ["Datum", "Leistung kW"] and len(table.df) == 12
+    assert table.time.column == "Datum" and table.time.step_minutes == 15 and table.time.rows == 12 and table.time.duplicates == 0
+    assert table.time.start == pd.Timestamp("2024-02-05 00:00") and table.time.end == pd.Timestamp("2024-02-05 02:45")
+    joined = next(message for message in table.messages if message.code == "time_joined")
+    assert joined.level == "info" and joined.params == {"date": "Datum", "time": "Uhrzeit"}
+
+
+def test_the_times_of_day_may_have_seconds_and_24_00_is_the_start_of_the_next_day():
+    rows = [("05.02.2024", "23:00:00", "1,5"), ("05.02.2024", "23:30:00", "2,5"), ("05.02.2024", "24:00", "3,5"), ("06.02.2024", "00:30", "4,5")]
+
+    table = read_table(_two_columns(rows), "datei.csv")
+
+    assert list(table.df.iloc[:, 0]) == [pd.Timestamp(stamp) for stamp in ("2024-02-05 23:00", "2024-02-05 23:30", "2024-02-06 00:00", "2024-02-06 00:30")]
+    assert table.time.step_minutes == 30
+
+
+def test_a_sheet_of_excel_with_times_of_day_as_times_is_joined_too():
+    import io
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    book.active.append(["Datum", "Uhrzeit", "Leistung kW"])
+    for hour in range(6):
+        book.active.append([datetime.datetime(2024, 2, 5), datetime.time(hour, 0), 20.5 + hour])
+    buffer = io.BytesIO()
+    book.save(buffer)
+
+    table = read_table(buffer.getvalue(), "datei.xlsx")
+
+    assert list(table.df.columns) == ["Datum", "Leistung kW"] and table.time.step_minutes == 60 and table.time.rows == 6
+    assert table.time.end == pd.Timestamp("2024-02-05 05:00")
+
+
+def test_a_column_of_dates_and_times_is_left_as_it_is_and_so_is_a_text_column_that_is_not_a_time_of_day():
+    plain = read_table(_two_columns([(f"2024-02-05 {hour:02d}:00", "", f"{hour},5") for hour in range(6)], "Zeit;Leer;Wert"), "datei.csv")
+    text = read_table(_two_columns([("05.02.2024", f"Halle {hour}", f"{hour},5") for hour in range(6)], "Datum;Ort;Wert"), "datei.csv")
+
+    assert "time_joined" not in [message.code for message in plain.messages] and plain.time.step_minutes == 60
+    assert list(text.df.columns) == ["Datum", "Ort", "Wert"] and "time_joined" not in [message.code for message in text.messages]
+
+
+def test_a_file_with_only_dates_and_a_value_each_day_is_a_daily_series_and_not_joined():
+    table = read_table(_two_columns([(f"0{day}.02.2024", f"{day},5") for day in range(5, 9)], "Datum;Wert"), "datei.csv")
+
+    assert table.time.step_minutes == 1440 and "time_joined" not in [message.code for message in table.messages]
+
+
+def test_a_column_of_dates_in_which_no_time_follows_an_earlier_one_is_not_a_time_axis_and_the_file_says_so():
+    same = read_table(b"t;v\n2021-01-01;1\n2021-01-01;2\n2021-01-01;3\n", "datei.csv")
+    backwards = read_table(b"t;v\n2021-01-03;1\n2021-01-02;2\n2021-01-01;3\n", "datei.csv")
+
+    for table in (same, backwards):
+        assert table.time is None
+        assert table.messages[0].code == "time_unusable" and table.messages[0].level == "warning" and table.messages[0].params == {"column": "t"}
+
+
+def test_a_column_with_only_a_few_repeats_is_still_a_time_axis_with_the_step_that_most_rows_have():
+    table = read_table(b"t;v\n2021-01-01 00:00;1\n2021-01-01 01:00;2\n2021-01-01 01:00;3\n2021-01-01 02:00;4\n2021-01-01 03:00;5\n", "datei.csv")
+
+    assert table.time.step_minutes == 60 and table.time.duplicates == 1
+
+
+def test_the_two_new_notices_are_in_both_languages():
+    from backend.i18n import Translator
+    from backend.timeseries_import import import_text
+
+    joined_table = read_table(b"Datum;Uhrzeit;v\n05.02.2024;00:00;1\n05.02.2024;01:00;2\n05.02.2024;02:00;3\n", "x.csv")
+    joined = next(message for message in joined_table.messages if message.code == "time_joined")
+    unusable = read_table(b"t;v\n2021-01-01;1\n2021-01-01;2\n2021-01-01;3\n", "x.csv").messages[0]
+
+    assert import_text(joined, Translator("en")) == "The date is in the column 'Datum' and the time of day in the column 'Uhrzeit': they are read together as one time."
+    assert import_text(joined, Translator("de")).startswith("Das Datum steht in der Spalte 'Datum' und die Uhrzeit in der Spalte 'Uhrzeit'")
+    assert "no time step can be found" in import_text(unusable, Translator("en")) and "kein Zeitschritt" in import_text(unusable, Translator("de"))
+
+
+def test_dates_that_have_times_already_are_not_joined_with_a_column_that_looks_like_a_time_of_day():
+    rows = [(f"2024-02-05 {hour:02d}:00", "12:00", f"{hour},5") for hour in range(6)]
+
+    table = read_table(_two_columns(rows, "Zeit;Uhr;Wert"), "datei.csv")
+
+    assert list(table.df.columns) == ["Zeit", "Uhr", "Wert"] and table.time.step_minutes == 60
+    assert "time_joined" not in [message.code for message in table.messages]
+    assert table.df.iloc[0, 0] == pd.Timestamp("2024-02-05 00:00")
+
+
+def test_a_text_column_of_which_only_half_looks_like_a_time_of_day_is_not_the_time_of_day():
+    rows = [("05.02.2024", "08:00" if row % 2 == 0 else "Halle 3", f"{row},5") for row in range(10)]
+
+    table = read_table(_two_columns(rows, "Datum;Notiz;Wert"), "datei.csv")
+
+    assert list(table.df.columns) == ["Datum", "Notiz", "Wert"] and "time_joined" not in [message.code for message in table.messages]
+
+
+def test_a_time_of_day_that_does_not_exist_is_an_empty_time_and_24_00_is_the_only_24():
+    rows = [("05.02.2024", f"{hour:02d}:00", f"{hour},5") for hour in range(19)] + [("05.02.2024", "24:30", "99,5")]
+
+    table = read_table(_two_columns(rows), "datei.csv")
+
+    assert list(table.df.columns) == ["Datum", "Leistung kW"] and len(table.df) == 20
+    assert pd.isna(table.df.iloc[19, 0]) and not table.df.iloc[:19, 0].isna().any()
+
+
+def test_the_seconds_of_a_time_of_day_are_kept():
+    rows = [("05.02.2024", f"{hour:02d}:{minute:02d}:30", f"{hour},5") for hour in range(2) for minute in (0, 15, 30, 45)]
+
+    table = read_table(_two_columns(rows), "datei.csv")
+
+    assert table.df.iloc[0, 0] == pd.Timestamp("2024-02-05 00:00:30") and table.df.iloc[1, 0] == pd.Timestamp("2024-02-05 00:15:30")
+    assert table.time.step_minutes == 15

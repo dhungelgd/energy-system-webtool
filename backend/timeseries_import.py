@@ -583,8 +583,60 @@ def _parse_datetimes(values):
     return parsed
 
 
+_TIME_OF_DAY_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$")
+
+
+def time_of_day(values):
+    """The time of day of each text ('00:15', '24:00') as a length of time; NaT if it is not one."""
+
+    parts = pd.Series(values, dtype="string").str.extract(_TIME_OF_DAY_RE)
+    hours, minutes = pd.to_numeric(parts[0]), pd.to_numeric(parts[1])
+    seconds = pd.to_numeric(parts[2]).fillna(0)
+    valid = (hours <= 24) & (minutes <= 59) & ~((hours == 24) & ((minutes > 0) | (seconds > 0)))
+
+    return pd.to_timedelta((hours * 3600 + minutes * 60 + seconds).where(valid), unit="s")
+
+
+def time_of_day_column(df, skip):
+    """The first column of texts that are almost all times of the day, or None."""
+
+    for name in df.columns:
+        if name == skip or pd.api.types.is_numeric_dtype(df[name]) or pd.api.types.is_datetime64_any_dtype(df[name]):
+            continue
+        present = df[name].dropna().astype(str)
+        if len(present) and present.str.match(_TIME_OF_DAY_RE).mean() >= 0.9:
+            return name
+
+    return None
+
+
+def _join_date_and_time(df):
+    """A file with the date in one column and the time of day in another (as the grid operators write them): one column of dates
+    and times, in the place of the column of the date; the column of the time of day is left out. Gives (table, (date column,
+    time column)), or (the same table, None) if the file does not have this layout."""
+
+    date_name = next((name for name in df.columns if pd.api.types.is_datetime64_any_dtype(df[name])), None)
+    if date_name is None:
+        return df, None
+
+    present = df[date_name].dropna()
+    if present.empty or not (present == present.dt.normalize()).all():             # the dates have times already
+        return df, None
+
+    time_name = time_of_day_column(df, date_name)
+    if time_name is None:
+        return df, None
+
+    joined = df.copy()
+    joined[date_name] = df[date_name].dt.normalize() + time_of_day(df[time_name])
+    joined = joined.drop(columns=[time_name])
+
+    return joined, (date_name, time_name)
+
+
 def _time_axis(df):
-    """Describe the first date column (step, gaps, duplicates)."""
+    """Describe the first date column that can be a time axis (step, gaps, duplicates). A column in which no time follows an
+    earlier one (the same time in every row, or times that run backwards only) is not one."""
 
     for column in df.columns:
         if not pd.api.types.is_datetime64_any_dtype(df[column]):
@@ -595,7 +647,10 @@ def _time_axis(df):
             return None
 
         steps = stamps.diff().dropna()
-        step = steps.mode().iloc[0]
+        forward = steps[steps > pd.Timedelta(0)]
+        if forward.empty:
+            continue
+        step = forward.mode().iloc[0]
 
         return TimeAxis(
             column=column,
@@ -785,11 +840,23 @@ def read_table(content, filename, options=None):
         messages=messages, row_lines=row_lines,
     )
 
+    df, joined = _join_date_and_time(df)
+    table = ImportedTable(
+        df=df, kind=kind, used=used, sheets=sheets,
+        messages=messages, row_lines=row_lines,
+    )
+    if joined is not None:
+        table.messages.insert(0, Notice("info", "time_joined", date=joined[0], time=joined[1]))
+
     table.time = _time_axis(df)
     if table.time is not None:
         table.messages = _describe_time(table.time) + table.messages
     else:
-        table.messages.insert(0, Notice("info", "no_date_column"))
+        unusable = next((name for name in df.columns if
+                         pd.api.types.is_datetime64_any_dtype(df[name]) and df[name].notna().sum() >= 2), None)
+        table.messages.insert(0,
+                              Notice("warning", "time_unusable", column=unusable) if unusable is not None else Notice(
+                                  "info", "no_date_column"))
 
     return table
 

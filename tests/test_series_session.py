@@ -152,7 +152,7 @@ def test_the_preview_shows_the_first_rows_in_the_way_of_the_language():
 def test_the_preview_has_only_the_first_rows():
     session = session_of(range(100))
 
-    assert len(session.preview(EN)[1]) == PREVIEW_ROWS == 8
+    assert len(session.preview(EN)[1]) == PREVIEW_ROWS == 10
     assert len(session.preview(EN, rows=3)[1]) == 3
 
 

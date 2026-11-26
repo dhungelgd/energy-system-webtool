@@ -25,9 +25,11 @@ from frontend_nicegui.analysis_view import (
     ALL_YEARS,
     CAP_MAX_SHARE,
     CAP_MIN_SHARE,
+    FILE_COLUMNS,
     SHEET_COLUMNS,
     cap_items,
     cap_limit,
+    column_rows,
     day_counts_text,
     kpi_items,
     near_peak_text,
@@ -39,13 +41,16 @@ from frontend_nicegui.analysis_view import (
 )
 from frontend_nicegui.chart_style import as_chart
 from frontend_nicegui.profile_session import ProfileSession
-from frontend_nicegui.series_widgets import ACCEPT, settings_box
+from frontend_nicegui.series_widgets import ACCEPT, notice_line, preview_block, settings_box
+from frontend_nicegui.shared_file import bulk_from_profile, is_the_file_of
 
 logger = logging.getLogger(__name__)
 
 UNIT_ORDER = ("kW", "kWh", "W", "Wh", "MW", "MWh")                  # the units to choose from
 NOTICE_ICONS = {"warning": ("warning", "warning"), "info": ("info", "primary")}
 OVERVIEW, PATTERNS, PEAKS, QUALITY = "overview", "patterns", "peaks", "quality"         # the tabs of the analysis
+OPTIMIZATION_AREA = "optimization"                                                       # where the visitor goes with the file
+SYSTEM_VIEW = "system"                                                                    # the view of the optimization with the card
 PEAK_COLUMNS = {                                                                          # the columns of the table of peaks
     "rank": "analysis.peaks.col.rank", "date": "analysis.peaks.col.date", "time": "analysis.peaks.col.time",
     "power": "analysis.peaks.col.power", "daytype": "analysis.peaks.col.daytype", "season": "analysis.peaks.col.season",
@@ -71,9 +76,9 @@ def facts(profile, tr):
     ]
 
 
-def make_profile_view(state):
+def make_profile_view(state, open_area=None):
     """The refreshable view of the area. It is drawn again when a file is loaded, answered or removed, and when a choice of
-    the analysis is changed."""
+    the analysis is changed. `open_area(key)` takes the visitor to another area (with the file, to the optimization)."""
 
     async def work(session, job):
         """Run `job` (reading or analysing) in a thread; if it breaks in a way that was not foreseen, tell it and go on."""
@@ -117,8 +122,23 @@ def make_profile_view(state):
         await read(state.profile)
 
     def remove():
+        if is_the_file_of(state.bulk, state.profile):  # the file is not kept in the optimization either
+            state.bulk, state.bulk_done = None, None
+            state.refresh_bulk()
         state.profile = None
         view.refresh()
+
+    async def use_in_optimization():
+        """Give the file to the optimization: its card shows it, read in the same way, with the column that was analysed as the
+        demand. Nothing is taken over before the visitor presses the button there."""
+
+        session = state.profile
+        state.bulk = await run.io_bound(bulk_from_profile, session)
+        state.bulk_done = None
+        state.view = SYSTEM_VIEW
+        state.refresh_bulk()
+        if open_area is not None:
+            open_area(OPTIMIZATION_AREA)
 
     def read_again():
         """The visitor changed how the file is read (sheet, delimiter ...): read the profile again from the new table."""
@@ -190,6 +210,25 @@ def make_profile_view(state):
                 "flat no-caps dense").mark(
                 "profile-settings-reset")
 
+    def contents_card(session):
+        """What the file contains: what the reader found about the time, the columns with numbers and what they look like, and
+        the first rows, as in the optimization. Open at first, and it stays as the visitor leaves it."""
+
+        tr, file = state.tr, session.file
+        analysed = session.profile.value_column if session.profile is not None else None
+
+        with ui.expansion(
+            tr("bulk.overview.heading"), icon="table_view", value=session.contents_open,
+            on_value_change=lambda event: setattr(session, "contents_open", event.value),
+        ).classes("w-full").mark("profile-contents"):
+            for notice in file.table.messages:
+                if notice.code in ("time_info", "time_joined", "time_unusable", "no_date_column"):
+                    notice_line(notice, tr)
+            columns = [{"name": name, "label": tr(key), "field": name, "align": "left"} for name, key in FILE_COLUMNS.items()]
+            ui.table(columns=columns, rows=column_rows(file, analysed, tr), row_key="column").props("dense flat").classes(
+                "w-full").mark("profile-columns")
+            preview_block(file, tr, "profile")
+
     def upload_card(session):
         tr = state.tr
 
@@ -205,6 +244,11 @@ def make_profile_view(state):
                                 session.sheet_names, value=current_sheet(session), label=tr("series.sheet"),
                                 on_change=lambda event: choose_sheet(event.value),
                             ).classes("w-full").mark("series-sheet-profile")
+                    ui.space()
+                    if session.file.readable:
+                        with ui.button(tr("profile.use_in_optimization"), icon="arrow_forward", on_click=use_in_optimization).props(
+                                "no-caps color=primary").mark("profile-use-in-optimization"):
+                            ui.tooltip(tr("profile.use_hint")).classes("text-body2")
                     ui.button(tr("profile.another"), on_click=remove).props("flat no-caps dense").mark("profile-remove")
                 if several_sheets:
                     sheets_overview(session)
@@ -499,6 +543,8 @@ def make_profile_view(state):
         upload_card(session)
         if session is None:
             return
+        if session.file.readable:
+            contents_card(session)
 
         if state.profile_reading:
             with ui.row().classes("items-center gap-3").mark("profile-reading"):
