@@ -1058,3 +1058,184 @@ def test_the_unit_of_the_chosen_column_is_known_from_its_name_when_the_file_has_
 
     assert not first.ready and first.needs == ["value_column", "unit"] and first.value_column is None
     assert chosen.ready and chosen.unit == "kWh" and chosen.step_minutes == 60 and chosen.energy_kwh() == pytest.approx(sum(0.8 + h / 100 for _ in range(3) for h in range(24)))
+
+
+# ---------------------------------------------------------------------------
+# the sheets of an Excel file
+# ---------------------------------------------------------------------------
+
+def workbook_of_sheets():
+    """Three sheets: some notes, the year 2022 (2 days, 20 kW) and the year 2023 (3 days, 30 kW: the sheet with most numbers)."""
+
+    import io
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    book.remove(book.active)
+    notes = book.create_sheet("Info")
+    notes.append(["Lastgang Kunde XY"])
+    notes.append(["Zählpunkt", "DE0001"])
+    for name, last, level in (("2022", "2022-02-06 23:45", 20.0), ("2023", "2023-02-07 23:45", 30.0)):
+        sheet = book.create_sheet(name)
+        sheet.append(["Zeitstempel", "Wirkleistung kW"])
+        first = last[:8] + "05 00:00"
+        for stamp in pd.date_range(first, last, freq="15min"):
+            sheet.append([stamp.to_pydatetime(), level])
+    buffer = io.BytesIO()
+    book.save(buffer)
+
+    return buffer.getvalue()
+
+
+def test_the_sheet_with_the_most_numbers_is_read_and_the_note_names_it_and_says_how_many_there_are():
+    profile = read_load_profile(workbook_of_sheets(), "jahre.xlsx")
+
+    assert profile.ready and profile.energy_kwh() == pytest.approx(3 * 96 * 30.0 * 0.25)
+    assert find(profile, "sheet_info").params == {"sheet": "2023", "count": 3}
+    assert "The sheet '2023' was read; the file has 3 sheets." in profile_text(find(profile, "sheet_info"), EN)
+    assert "Es wurde das Blatt '2023' gelesen; die Datei hat 3 Blätter." in profile_text(find(profile, "sheet_info"), DE)
+
+
+def test_another_sheet_can_be_chosen_with_the_options_of_the_file():
+    from backend.timeseries_import import ImportOptions
+
+    profile = read_load_profile(workbook_of_sheets(), "jahre.xlsx", ProfileOptions(file=ImportOptions(sheet="2022")))
+
+    assert profile.ready and profile.energy_kwh() == pytest.approx(2 * 96 * 20.0 * 0.25) and find(profile, "sheet_info").params["sheet"] == "2022"
+
+
+def test_a_sheet_that_the_file_does_not_have_is_refused():
+    from backend.timeseries_import import ImportOptions
+
+    with pytest.raises(TimeSeriesFileError) as error:
+        read_load_profile(workbook_of_sheets(), "jahre.xlsx", ProfileOptions(file=ImportOptions(sheet="2030")))
+
+    assert error.value.code == "sheet_missing"
+
+
+def test_a_file_with_one_sheet_or_a_csv_file_says_nothing_about_sheets():
+    import io
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    book.active.append(["Zeitstempel", "Wirkleistung kW"])
+    for stamp in pd.date_range("2024-02-05", periods=96, freq="15min"):
+        book.active.append([stamp.to_pydatetime(), 20.0])
+    buffer = io.BytesIO()
+    book.save(buffer)
+    index = starts("2024-02-05 00:00", "2024-02-06 23:45")
+
+    assert "sheet_info" not in codes(read_load_profile(buffer.getvalue(), "eins.xlsx"))
+    assert "sheet_info" not in codes(read(render(index, kw(index))))
+
+
+def test_a_table_that_was_read_already_is_used_and_not_read_again():
+    from backend.timeseries_import import ImportOptions, read_table
+
+    content = workbook_of_sheets()
+    table = read_table(content, "jahre.xlsx", ImportOptions(sheet="2022"))
+
+    profile = read_load_profile(content, "jahre.xlsx", table=table)                     # no sheet in the options: the table decides
+
+    assert profile.energy_kwh() == pytest.approx(2 * 96 * 20.0 * 0.25) and find(profile, "sheet_info").params["sheet"] == "2022"
+
+
+def test_a_workbook_with_exactly_two_sheets_names_the_sheet_too():
+    import io
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    book.active.title = "Daten"
+    book.active.append(["Zeitstempel", "Wirkleistung kW"])
+    for stamp in pd.date_range("2024-02-05", periods=96, freq="15min"):
+        book.active.append([stamp.to_pydatetime(), 20.0])
+    book.create_sheet("Notizen").append(["nichts"])
+    buffer = io.BytesIO()
+    book.save(buffer)
+
+    profile = read_load_profile(buffer.getvalue(), "zwei.xlsx")
+
+    assert profile.ready and find(profile, "sheet_info").params == {"sheet": "Daten", "count": 2}
+
+
+# ---------------------------------------------------------------------------
+# what each sheet of a workbook holds
+# ---------------------------------------------------------------------------
+
+def test_the_overview_of_the_sheets_says_for_each_sheet_the_rows_the_columns_with_numbers_the_period_and_the_time_step():
+    from backend.load_profile import SheetInfo, sheet_overview
+
+    infos = sheet_overview(workbook_of_sheets(), "jahre.xlsx")
+
+    assert infos == [
+        SheetInfo("Info", problem="unreadable"),
+        SheetInfo("2022", rows=192, number_columns=1, start=pd.Timestamp("2022-02-05 00:00"), end=pd.Timestamp("2022-02-06 23:45"), step_minutes=15.0),
+        SheetInfo("2023", rows=288, number_columns=1, start=pd.Timestamp("2023-02-05 00:00"), end=pd.Timestamp("2023-02-07 23:45"), step_minutes=15.0),
+    ]
+
+
+def test_a_csv_file_and_a_workbook_with_one_sheet_have_no_overview_of_sheets():
+    import io
+
+    from openpyxl import Workbook
+
+    from backend.load_profile import sheet_overview
+
+    book = Workbook()
+    book.active.append(["Zeitstempel", "Wirkleistung kW"])
+    for stamp in pd.date_range("2024-02-05", periods=96, freq="15min"):
+        book.active.append([stamp.to_pydatetime(), 20.0])
+    buffer = io.BytesIO()
+    book.save(buffer)
+    index = starts("2024-02-05 00:00", "2024-02-06 23:45")
+
+    assert sheet_overview(buffer.getvalue(), "eins.xlsx") == []
+    assert sheet_overview(render(index, kw(index)).encode(), "datei.csv") == []
+
+
+def test_the_overview_lists_every_sheet_whichever_sheet_is_read_now_and_also_when_that_one_cannot_be_read():
+    from backend.load_profile import sheet_overview
+
+    content = workbook_of_sheets()
+
+    assert [i.name for i in sheet_overview(content, "jahre.xlsx", ImportOptions(sheet="2022"))] == ["Info", "2022", "2023"]
+    assert [i.name for i in sheet_overview(content, "jahre.xlsx", ImportOptions(sheet="Info"), names=["Info", "2022", "2023"])] == ["Info", "2022", "2023"]
+    assert sheet_overview(content, "jahre.xlsx", ImportOptions(sheet="Info")) == []                 # the sheets are not known then
+
+
+def test_a_sheet_with_numbers_but_no_dates_is_marked_and_its_columns_with_numbers_are_counted():
+    import io
+
+    from openpyxl import Workbook
+
+    from backend.load_profile import sheet_overview
+
+    book = Workbook()
+    book.active.title = "Daten"
+    book.active.append(["Zeitstempel", "Wirkleistung kW"])
+    for stamp in pd.date_range("2024-02-05", periods=96, freq="15min"):
+        book.active.append([stamp.to_pydatetime(), 20.0])
+    numbers = book.create_sheet("Zahlen")
+    numbers.append(["a", "b", "c"])
+    for row in range(10):
+        numbers.append([row, row * 2.5, row * 3.5])
+    buffer = io.BytesIO()
+    book.save(buffer)
+
+    infos = {info.name: info for info in sheet_overview(buffer.getvalue(), "zwei.xlsx")}
+
+    assert infos["Zahlen"].problem == "no_time" and infos["Zahlen"].number_columns == 3 and infos["Zahlen"].rows == 10
+    assert infos["Zahlen"].start is None and infos["Zahlen"].step_minutes is None
+    assert infos["Daten"].problem is None and infos["Daten"].number_columns == 1
+
+
+def test_the_sheet_that_is_read_now_is_listed_as_it_is_read_with_the_settings_of_the_visitor_and_the_others_with_everything_detected():
+    from backend.load_profile import sheet_overview
+
+    infos = {info.name: info for info in sheet_overview(workbook_of_sheets(), "jahre.xlsx", ImportOptions(sheet="2022", first_data_line=12))}
+
+    assert infos["2022"].rows == 182 and infos["2022"].start == pd.Timestamp("2022-02-05 02:30")        # the first rows are skipped
+    assert infos["2023"].rows == 288 and infos["2023"].start == pd.Timestamp("2023-02-05 00:00")

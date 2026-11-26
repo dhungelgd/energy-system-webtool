@@ -876,3 +876,314 @@ async def test_a_single_column_that_looks_like_something_else_can_be_chosen_as_t
     await apply(user)
 
     assert exists(user, "analysis-kpis") and texts(user, "analysis-kpi-peak")[1] == "0.3 kW"                       # 0.1 + 23 / 100
+
+
+# ---------------------------------------------------------------------------
+# how the file is read: the sheet and the settings of the import
+# ---------------------------------------------------------------------------
+
+def workbook_bytes():
+    from tests.test_load_profile import workbook_of_sheets
+
+    return workbook_of_sheets()
+
+
+async def test_a_workbook_with_several_sheets_shows_the_sheet_that_was_read_and_lets_the_visitor_choose_another(user: User):
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+
+    assert field(user, "series-sheet-profile").value == "2023" and field(user, "series-sheet-profile").options == ["Info", "2022", "2023"]
+    assert texts(user, "analysis-kpi-energy")[1] == f"{EN.integer(round(3 * 96 * 30 * 0.25))} kWh"
+    assert "The sheet '2023' was read; the file has 3 sheets." in texts(user, "profile-note-sheet_info")[0]
+
+    field(user, "series-sheet-profile").set_value("2022")
+    await settle()
+    await reading_done(user)
+
+    assert texts(user, "analysis-kpi-energy")[1] == f"{EN.integer(round(2 * 96 * 20 * 0.25))} kWh"
+    assert field(user, "series-sheet-profile").value == "2022" and "The sheet '2022' was read" in texts(user, "profile-note-sheet_info")[0]
+    assert exists(user, "profile-settings-reset")                                          # a setting was changed: a way back
+
+
+async def test_a_csv_file_has_no_choice_of_the_sheet_but_the_settings_of_the_import_that_are_automatic_at_first(user: User):
+    content, _ = a_file(**THREE_WEEKS)
+    await loaded(user, content)
+
+    assert not exists(user, "series-sheet-profile") and not exists(user, "profile-settings-reset")
+    assert [field(user, f"series-{name}-profile").value for name in ("delimiter", "decimal", "encoding")] == ["auto", "auto", "auto"]
+
+
+async def test_a_wrong_delimiter_shows_the_error_and_the_settings_stay_so_that_the_visitor_can_go_back(user: User):
+    content, _ = a_file(**THREE_WEEKS)
+    await loaded(user, content)
+
+    field(user, "series-delimiter-profile").set_value(",")
+    await settle()
+    await reading_done(user)
+
+    assert field(user, "profile-error").text == "No column with dates and times was found." and not exists(user, "analysis-kpis")
+    assert exists(user, "profile-error-settings") and field(user, "series-delimiter-profile").value == ","
+
+    field(user, "series-delimiter-profile").set_value("auto")
+    await settle()
+    await reading_done(user)
+
+    assert exists(user, "analysis-kpis") and not exists(user, "profile-error") and not exists(user, "profile-settings-reset")
+
+
+async def test_a_wrong_encoding_that_makes_the_file_unreadable_has_a_button_back_to_the_automatic_settings(user: User):
+    content, _ = a_file(**THREE_WEEKS)
+    await loaded(user, content)
+
+    field(user, "series-encoding-profile").set_value("utf-16")
+    await settle()
+    await reading_done(user)
+
+    assert exists(user, "profile-error") and not exists(user, "series-delimiter-profile") and not exists(user, "analysis-kpis")
+    user.find(marker="profile-settings-reset").click()
+    await settle()
+    await reading_done(user)
+
+    assert exists(user, "analysis-kpis") and not exists(user, "profile-settings-reset")
+
+
+async def test_the_button_back_to_the_automatic_settings_takes_every_setting_back(user: User):
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+    field(user, "series-sheet-profile").set_value("2022")
+    await settle()
+    await reading_done(user)
+    assert texts(user, "analysis-kpi-energy")[1] == f"{EN.integer(round(2 * 96 * 20 * 0.25))} kWh"
+
+    user.find(marker="profile-settings-reset").click()
+    await settle()
+    await reading_done(user)
+
+    assert field(user, "series-sheet-profile").value == "2023" and not exists(user, "profile-settings-reset")
+    assert texts(user, "analysis-kpi-energy")[1] == f"{EN.integer(round(3 * 96 * 30 * 0.25))} kWh"
+
+
+async def test_the_sheet_and_the_settings_are_in_the_language_of_the_page(user: User):
+    await to_profile(user, "?area=profile&lang=de")
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+
+    german = Translator("de")
+    assert field(user, "series-sheet-profile").props["label"] == german("series.sheet")
+    assert "Es wurde das Blatt '2023' gelesen" in texts(user, "profile-note-sheet_info")[0]
+    assert german("series.settings.heading") != "series.settings.heading"
+
+
+async def test_what_was_chosen_for_one_sheet_is_forgotten_when_another_sheet_is_chosen(user: User):
+    import io
+
+    import pandas as pd
+    from openpyxl import Workbook
+
+    book = Workbook()
+    book.remove(book.active)
+    new = book.create_sheet("Neu")
+    new.append(["Zeitstempel", "Last A kW", "Last B kW"])
+    old = book.create_sheet("Alt")
+    old.append(["Zeitstempel", "Wirkleistung kW"])
+    for stamp in pd.date_range("2024-02-05", periods=3 * 96, freq="15min"):
+        new.append([stamp.to_pydatetime(), 30.0, 10.0])
+    for stamp in pd.date_range("2024-02-05", periods=96, freq="15min"):
+        old.append([stamp.to_pydatetime(), 20.0])
+    buffer = io.BytesIO()
+    book.save(buffer)
+    await to_profile(user)
+    await upload(user, buffer.getvalue(), "zwei_blaetter.xlsx")
+    assert field(user, "series-sheet-profile").value == "Neu" and exists(user, "profile-ask-column")
+
+    field(user, "profile-ask-column").set_value("Last A kW")
+    await apply(user)
+    assert exists(user, "analysis-kpis")
+
+    field(user, "series-sheet-profile").set_value("Alt")
+    await settle()
+    await reading_done(user)
+
+    assert not exists(user, "profile-error") and exists(user, "analysis-kpis")             # the column 'Last A kW' is not asked for again
+    assert texts(user, "analysis-kpi-energy")[1] == f"{EN.integer(round(96 * 20 * 0.25))} kWh"
+
+
+# ---------------------------------------------------------------------------
+# the sheet in the row of the file, and what is on each sheet
+# ---------------------------------------------------------------------------
+
+def inside(user, marker, container_marker):
+    """True if the element with the marker is somewhere in the element with the other marker."""
+
+    element, container = field(user, marker), field(user, container_marker)
+    while element is not None:
+        if element is container:
+            return True
+        slot = getattr(element, "parent_slot", None)
+        element = slot.parent if slot is not None else None
+
+    return False
+
+
+async def sheets_loaded(user: User):
+    for _ in range(50):
+        if exists(user, "profile-sheets-table"):
+            break
+        await asyncio.sleep(0.2)
+    await settle()
+
+
+async def test_the_sheet_selector_is_in_the_row_of_the_file_and_only_there_and_in_sight_in_every_tab(user: User):
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+
+    assert len(user.find(marker="series-sheet-profile").elements) == 1
+    assert inside(user, "series-sheet-profile", "profile-file-card") and not inside(user, "series-sheet-profile", "analysis-panel-quality")
+    field(user, "analysis-tabs").set_value("peaks")
+    await settle()
+    assert exists(user, "series-sheet-profile") and field(user, "series-sheet-profile").value == "2023"
+
+
+async def test_the_overview_of_the_sheets_is_there_for_a_workbook_with_several_sheets_and_closed_at_first(user: User):
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+
+    assert exists(user, "profile-sheets") and field(user, "profile-sheets").value is False
+    assert not exists(user, "profile-sheets-table") and not exists(user, "profile-sheets-loading")
+
+
+async def test_a_csv_file_has_no_overview_of_sheets(user: User):
+    content, _ = a_file(**THREE_WEEKS)
+    await loaded(user, content)
+
+    assert not exists(user, "profile-sheets") and not exists(user, "series-sheet-profile")
+
+
+async def test_opening_the_overview_reads_the_sheets_and_shows_what_each_holds_and_which_one_is_analysed(user: User):
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+
+    field(user, "profile-sheets").set_value(True)
+    await settle()
+    await sheets_loaded(user)
+
+    rows = field(user, "profile-sheets-table").rows
+    assert [row["sheet"] for row in rows] == ["Info", "2022", "2023"]
+    assert rows[0]["note"] == "cannot be read" and rows[1] == {
+        "sheet": "2022", "rows": "192", "columns": "1", "period": "2022-02-05 – 2022-02-06", "step": "15 minutes", "note": ""}
+    assert rows[2]["note"] == "analysed now" and rows[2]["rows"] == "288" and field(user, "profile-sheets").value is True
+    assert "Choose a sheet above to analyse it." in texts(user, "profile-sheets")[0]
+
+
+async def test_another_sheet_moves_the_mark_and_keeps_the_box_open_without_reading_the_sheets_again(user: User, monkeypatch):
+    calls = []
+    original = ProfileSession.load_sheet_overview
+
+    def counting(self):
+        calls.append(1)
+        return original(self)
+
+    monkeypatch.setattr(ProfileSession, "load_sheet_overview", counting)
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+    field(user, "profile-sheets").set_value(True)
+    await settle()
+    await sheets_loaded(user)
+    assert len(calls) == 1
+
+    field(user, "series-sheet-profile").set_value("2022")
+    await settle()
+    await reading_done(user)
+    await sheets_loaded(user)
+
+    rows = field(user, "profile-sheets-table").rows
+    assert [row["note"] for row in rows] == ["cannot be read", "analysed now", ""] and field(user, "profile-sheets").value is True
+    assert len(calls) == 1 and texts(user, "analysis-kpi-energy")[1] == f"{EN.integer(round(2 * 96 * 20 * 0.25))} kWh"
+
+
+async def test_a_change_of_how_the_file_is_read_makes_the_sheets_be_read_again_when_the_box_is_open(user: User, monkeypatch):
+    calls = []
+    original = ProfileSession.load_sheet_overview
+
+    def counting(self):
+        calls.append(1)
+        return original(self)
+
+    monkeypatch.setattr(ProfileSession, "load_sheet_overview", counting)
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+    field(user, "profile-sheets").set_value(True)
+    await settle()
+    await sheets_loaded(user)
+
+    field(user, "series-decimal-profile").set_value(",")
+    await settle()
+    await reading_done(user)
+    await sheets_loaded(user)
+
+    assert len(calls) == 2
+
+
+async def test_a_sheet_that_cannot_be_read_can_be_chosen_and_the_selector_stays_so_that_the_visitor_can_go_back(user: User):
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+
+    field(user, "series-sheet-profile").set_value("Info")
+    await settle()
+    await reading_done(user)
+
+    assert exists(user, "profile-error") and not exists(user, "analysis-kpis")
+    assert field(user, "series-sheet-profile").value == "Info" and field(user, "series-sheet-profile").options == ["Info", "2022", "2023"]
+    assert exists(user, "profile-sheets") and exists(user, "profile-settings-reset")
+
+    field(user, "series-sheet-profile").set_value("2023")
+    await settle()
+    await reading_done(user)
+
+    assert exists(user, "analysis-kpis") and not exists(user, "profile-error")
+    assert texts(user, "analysis-kpi-energy")[1] == f"{EN.integer(round(3 * 96 * 30 * 0.25))} kWh"
+
+
+async def test_the_overview_of_the_sheets_in_the_error_state_still_lists_all_the_sheets(user: User):
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+    field(user, "series-sheet-profile").set_value("Info")
+    await settle()
+    await reading_done(user)
+
+    field(user, "profile-sheets").set_value(True)
+    await settle()
+    await sheets_loaded(user)
+
+    rows = field(user, "profile-sheets-table").rows
+    assert [row["sheet"] for row in rows] == ["Info", "2022", "2023"] and rows[2]["rows"] == "288" and all("analysed now" not in row["note"] for row in rows[1:])
+
+
+async def test_when_the_sheets_cannot_be_worked_out_the_page_goes_on_without_the_overview(user: User, monkeypatch, caplog):
+    def broken(self):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ProfileSession, "load_sheet_overview", broken)
+    await to_profile(user)
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+
+    field(user, "profile-sheets").set_value(True)
+    await settle()
+    await sheets_loaded(user)
+
+    assert field(user, "profile-sheets-table").rows == [] and exists(user, "analysis-kpis") and exists(user, "series-sheet-profile")
+    assert "The sheets of the file could not be read" in caplog.text
+    caplog.clear()
+
+
+async def test_the_overview_of_the_sheets_is_in_german_for_a_german_page(user: User):
+    await to_profile(user, "?area=profile&lang=de")
+    await upload(user, workbook_bytes(), "jahre.xlsx")
+
+    field(user, "profile-sheets").set_value(True)
+    await settle()
+    await sheets_loaded(user)
+
+    rows = field(user, "profile-sheets-table").rows
+    assert texts(user, "profile-sheets")[0].startswith("Jedes Blatt der Datei.") and field(user, "profile-sheets").props["label"] == "Was auf den Blättern steht"
+    assert [column["label"] for column in field(user, "profile-sheets-table").columns][:3] == ["Blatt", "Zeilen", "Spalten mit Zahlen"]
+    assert rows[1]["period"] == "05.02.2022 – 06.02.2022" and rows[2]["note"] == "wird ausgewertet" and rows[0]["note"] == "nicht lesbar"

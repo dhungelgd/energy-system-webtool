@@ -7,10 +7,13 @@ is passed on as a decision: what the reader worked out by itself stays open to b
 easy to test.
 """
 
+from dataclasses import replace
+
 from backend.holidays_de import DEFAULT_STATE
 from backend.load_analysis import AnalysisOptions, analyze, default_year, years_of
-from backend.load_profile import ProfileFileError, ProfileOptions, read_load_profile
+from backend.load_profile import ProfileFileError, ProfileOptions, read_load_profile, sheet_overview
 from backend.timeseries_import import TimeSeriesFileError
+from frontend_nicegui.series_session import UploadSession
 
 CHOICES = ("value_column", "unit", "stamp_at", "energy_kwh")
 ANALYSIS_CHOICES = ("state", "catholic_municipality", "year")      # what the visitor chooses for the analysis
@@ -22,6 +25,12 @@ class ProfileSession:
     def __init__(self, content, filename):
         self.content = content
         self.filename = filename
+        self.file = UploadSession(content, filename)    # how the file is read (sheet, delimiter, ...) and the table that it gave
+        self._sheet_names = list(self.file.sheets())
+        self.sheet_info = None          # what each sheet holds (SheetInfo), once it was worked out: it takes a moment
+        self._sheet_info_options = None # the settings of the import that it was worked out with, without the sheet
+        self.sheets_open = False        # the box with what is on the sheets is open (for the page)
+        self.sheet_loading = False      # the sheets are being read now (for the page)
         self.choices = {}               # what the visitor decided: some of CHOICES
         self.profile = None             # the LoadProfile that was read (ready or not)
         self.error = None               # a ProfileFileError or TimeSeriesFileError: why it cannot be read
@@ -29,6 +38,16 @@ class ProfileSession:
         self.analysis = None            # the LoadAnalysis of the profile (None while there is none)
         self.analysis_failed = False    # the profile is ready but cannot be analysed (no value in the chosen period)
         self.analysis_choices = {}      # state, catholic_municipality and year (the year is there once the profile is ready)
+
+    @property
+    def sheet_names(self):
+        """The sheets of an Excel file (empty for a CSV file). They are kept when a sheet cannot be read, so that the visitor
+        can always go back to another one."""
+
+        if self.file.readable and self.file.sheets():
+            self._sheet_names = list(self.file.sheets())
+
+        return self._sheet_names
 
     @property
     def ready(self):
@@ -62,14 +81,38 @@ class ProfileSession:
         quarter-hours takes a second or two), so a page calls it in a thread."""
 
         self.failed = False
+        if not self.file.readable:                      # the file cannot be read at all with these settings
+            self.profile, self.error = None, self.file.error
+            self.analyse()
+            return
+
         try:
-            self.profile = read_load_profile(self.content, self.filename, ProfileOptions(**self.choices))
+            self.profile = read_load_profile(
+                self.content, self.filename, ProfileOptions(file=self.file.options, **self.choices), table=self.file.table)
             self.error = None
         except (ProfileFileError, TimeSeriesFileError) as error:
             self.profile = None
             self.error = error
 
         self.analyse()
+
+    def layout_changed(self):
+        """The file was read with other settings (another sheet, another delimiter): what was decided about its column, its
+        unit and its energy belongs to the old reading, and so does the year of the analysis. What a time means stays."""
+
+        for name in ("value_column", "unit", "energy_kwh"):
+            self.choices.pop(name, None)
+        self.analysis_choices.pop("year", None)
+        if self.sheet_info is not None and self._sheet_info_options != replace(self.file.options, sheet=None):
+            self.sheet_info = None                      # the sheets are read in another way now: work them out again
+
+    def load_sheet_overview(self):
+        """Work out what each sheet holds (it reads each sheet, so a page calls it in a thread) and keep it."""
+
+        self._sheet_info_options = replace(self.file.options, sheet=None)
+        self.sheet_info = sheet_overview(self.content, self.filename, self.file.options, names=self.sheet_names)
+
+        return self.sheet_info
 
     # ----- the analysis ------------------------------------------------------
 

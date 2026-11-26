@@ -4,6 +4,7 @@ to test."""
 
 from backend.holidays_de import DAY_TYPES
 from backend.load_analysis import PEAK_SHARE, YEAR_DAYS, capping
+from backend.timeseries_import import StepText
 from frontend_nicegui.analysis_charts import DAY_TYPE_TEXTS, SEASON_TEXTS
 
 ALL_YEARS = "all"                                    # the choice of the whole profile (the value of the year is None)
@@ -130,3 +131,28 @@ def profile_in_period(power_kw, analysis):
     """The profile as the file has it, within the period that was analysed (the whole profile or one calendar year)."""
 
     return power_kw if analysis.year is None else power_kw[power_kw.index.year == analysis.year]
+
+
+SHEET_COLUMNS = {                                    # the columns of the table of the sheets of a file
+    "sheet": "profile.sheets.col.sheet", "rows": "profile.sheets.col.rows", "columns": "profile.sheets.col.columns",
+    "period": "profile.sheets.col.period", "step": "profile.sheets.col.step", "note": "profile.sheets.col.note",
+}
+SHEET_PROBLEMS = {"no_time": "profile.sheets.no_time", "unreadable": "profile.sheets.unreadable"}
+
+
+def sheet_rows(infos, current, tr):
+    """What each sheet of the file holds as rows of text for a table; the sheet that is analysed now is marked in the note."""
+
+    shown = tr("result.chart.date_format")
+    rows = []
+    for info in infos:
+        note = tr(SHEET_PROBLEMS[info.problem]) if info.problem else ""
+        if info.name == current:
+            note = (f"{tr('profile.sheets.current')}. " + note).strip(". ") if note else tr("profile.sheets.current")
+        rows.append({
+            "sheet": info.name, "rows": tr.integer(info.rows) if not info.problem == "unreadable" else "",
+            "columns": tr.integer(info.number_columns) if not info.problem == "unreadable" else "",
+            "period": f"{info.start.strftime(shown)} – {info.end.strftime(shown)}" if info.start is not None else "",
+            "step": StepText(int(round(info.step_minutes))).render(tr) if info.step_minutes else "", "note": note})
+
+    return rows

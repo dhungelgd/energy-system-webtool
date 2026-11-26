@@ -274,3 +274,137 @@ def test_analysing_again_forgets_a_failure():
     session.analyse()
 
     assert session.analysis is not None and not session.analysis_failed
+
+
+# ---------------------------------------------------------------------------
+# how the file is read: the sheet and the settings of the import
+# ---------------------------------------------------------------------------
+
+def test_a_file_with_several_sheets_is_read_from_the_sheet_with_the_most_numbers_and_another_can_be_chosen():
+    from tests.test_load_profile import workbook_of_sheets
+
+    session = ProfileSession(workbook_of_sheets(), "jahre.xlsx")
+    session.read()
+    assert session.file.sheets() == ["Info", "2022", "2023"] and session.file.table.used.sheet == "2023"
+    assert session.profile.energy_kwh() == pytest.approx(3 * 96 * 30.0 * 0.25)
+
+    session.file.change(sheet="2022")
+    session.layout_changed()
+    session.read()
+
+    assert session.ready and session.profile.energy_kwh() == pytest.approx(2 * 96 * 20.0 * 0.25)
+    assert session.file.options.sheet == "2022"
+
+
+def test_after_the_file_is_read_in_another_way_the_decisions_about_its_column_the_unit_and_the_year_are_gone_but_what_a_time_means_stays():
+    text, _ = two_years()
+    session = session_of(text)
+    session.read()
+    session.decide(value_column="Last kW", unit="kW", energy_kwh=100.0, stamp_at="end")
+    session.choose_analysis(year=2022, state="SN")
+
+    session.layout_changed()
+
+    assert session.choices == {"stamp_at": "end"}
+    assert "year" not in session.analysis_choices and session.analysis_choices["state"] == "SN"
+
+
+def test_a_wrong_delimiter_gives_an_error_and_the_automatic_settings_bring_the_file_back():
+    session = session_of(a_day()[0])
+    session.read()
+    assert session.ready
+
+    session.file.change(delimiter=",")
+    session.layout_changed()
+    session.read()
+    assert not session.ready and session.error is not None and session.profile is None
+
+    session.file.change(delimiter=None)
+    session.layout_changed()
+    session.read()
+
+    assert session.ready and session.error is None
+
+
+def test_a_wrong_encoding_can_make_the_file_unreadable_and_it_is_then_the_error_of_the_file():
+    session = session_of(a_day()[0])
+    session.file.change(encoding="utf-16")
+
+    session.read()
+
+    assert not session.file.readable and session.error is session.file.error and session.profile is None and session.analysis is None
+
+
+def test_a_decimal_sign_that_the_visitor_forces_is_used_as_told_and_the_automatic_choice_brings_the_right_numbers_back():
+    lines = ["time,strom_kwh"] + [f"2026-01-0{day} {hour:02d}:00,{0.8 + hour / 100}" for day in (1, 2, 3) for hour in range(24)]
+    session = ProfileSession(("\n".join(lines) + "\n").encode(), "a.csv")
+    session.read()
+    right = session.profile.energy_kwh()
+    assert session.file.table.used.decimal == "." and right == pytest.approx(65.88)
+
+    session.file.change(decimal=",")                                           # a wrong decision: a point is a thousands sign now
+    session.layout_changed()
+    session.read()
+    assert session.file.options.decimal == "," and session.profile.energy_kwh() > 1000 * right        # nothing stops it: it is told
+
+    session.file.change(decimal=None)
+    session.layout_changed()
+    session.read()
+
+    assert session.file.options.decimal is None and session.profile.energy_kwh() == pytest.approx(right)
+
+
+# ---------------------------------------------------------------------------
+# what each sheet holds, and the names of the sheets
+# ---------------------------------------------------------------------------
+
+def test_the_overview_of_the_sheets_is_worked_out_when_it_is_asked_for_and_kept():
+    from tests.test_load_profile import workbook_of_sheets
+
+    session = ProfileSession(workbook_of_sheets(), "jahre.xlsx")
+    assert session.sheet_info is None
+
+    info = session.load_sheet_overview()
+
+    assert [item.name for item in info] == ["Info", "2022", "2023"] and session.sheet_info is info
+
+
+def test_another_sheet_keeps_the_overview_and_another_setting_makes_it_be_worked_out_again():
+    from tests.test_load_profile import workbook_of_sheets
+
+    session = ProfileSession(workbook_of_sheets(), "jahre.xlsx")
+    kept = session.load_sheet_overview()
+
+    session.file.change(sheet="2022")
+    session.layout_changed()
+    assert session.sheet_info is kept                                          # the same sheets, read in the same way
+
+    session.file.change(decimal=",")
+    session.layout_changed()
+    assert session.sheet_info is None                                          # the sheets are read in another way now
+
+    again = session.load_sheet_overview()
+    session.file.change(first_data_line=2)
+    session.layout_changed()
+    assert again is not None and session.sheet_info is None
+
+
+def test_the_names_of_the_sheets_are_kept_when_the_sheet_that_is_read_cannot_be_read_and_the_overview_still_lists_all():
+    from tests.test_load_profile import workbook_of_sheets
+
+    session = ProfileSession(workbook_of_sheets(), "jahre.xlsx")
+    assert session.sheet_names == ["Info", "2022", "2023"]
+
+    session.file.change(sheet="Info")                                          # a sheet with nothing to read
+    session.layout_changed()
+    session.read()
+
+    assert not session.file.readable and session.profile is None
+    assert session.sheet_names == ["Info", "2022", "2023"]
+    assert [item.name for item in session.load_sheet_overview()] == ["Info", "2022", "2023"]
+
+
+def test_a_csv_file_has_no_names_of_sheets_and_no_overview():
+    session = session_of(a_day()[0])
+
+    assert session.sheet_names == [] and session.load_sheet_overview() == []

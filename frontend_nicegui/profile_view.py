@@ -6,12 +6,12 @@ profile_session.py and the charts in analysis_charts.py; this file only builds t
 import logging
 from datetime import timedelta
 
-from nicegui import events, run, ui
+from nicegui import background_tasks, events, run, ui
 
 from backend.holidays_de import DEFAULT_STATE
 from backend.load_analysis import analysis_text
 from backend.load_profile import UnitText, profile_text
-from backend.timeseries_import import StepText
+from backend.timeseries_import import ImportOptions, StepText
 from frontend_nicegui.analysis_charts import (
     duration_figure,
     heatmap_figure,
@@ -25,6 +25,7 @@ from frontend_nicegui.analysis_view import (
     ALL_YEARS,
     CAP_MAX_SHARE,
     CAP_MIN_SHARE,
+    SHEET_COLUMNS,
     cap_items,
     cap_limit,
     day_counts_text,
@@ -32,12 +33,13 @@ from frontend_nicegui.analysis_view import (
     near_peak_text,
     peak_rows,
     profile_in_period,
+    sheet_rows,
     state_options,
     year_options,
 )
 from frontend_nicegui.chart_style import as_chart
 from frontend_nicegui.profile_session import ProfileSession
-from frontend_nicegui.series_widgets import ACCEPT
+from frontend_nicegui.series_widgets import ACCEPT, settings_box
 
 logger = logging.getLogger(__name__)
 
@@ -118,15 +120,94 @@ def make_profile_view(state):
         state.profile = None
         view.refresh()
 
+    def read_again():
+        """The visitor changed how the file is read (sheet, delimiter ...): read the profile again from the new table."""
+
+        session = state.profile
+        session.layout_changed()
+        background_tasks.create(read(session))
+
+    def reset_file_settings():
+        """Back to detecting everything: the way out of settings that made the file unreadable."""
+
+        state.profile.file.change(encoding=None, delimiter=None, decimal=None, header_line=None, first_data_line=None, sheet=None)
+        read_again()
+
+    async def load_sheet_info(session):
+        try:
+            await run.io_bound(session.load_sheet_overview)
+        except Exception:  # noqa: BLE001 - the overview is only a help: the page must go on without it
+            logger.exception("The sheets of the file could not be read")
+            session.sheet_info = []
+        session.sheet_loading = False
+        view.refresh()
+
+    def sheets_overview(session):
+        """What each sheet of the file holds, so that the right one can be chosen. The sheets are read only when the box is open."""
+
+        tr = state.tr
+
+        def toggled(event):
+            session.sheets_open = event.value
+            view.refresh()
+
+        if session.sheets_open and session.sheet_info is None and not session.sheet_loading:
+            session.sheet_loading = True
+            background_tasks.create(load_sheet_info(session))
+
+        with ui.expansion(tr("profile.sheets.title"), value=session.sheets_open, on_value_change=toggled).classes(
+                "w-full").mark(
+                "profile-sheets"):
+            ui.label(tr("profile.sheets.hint")).classes("text-grey text-sm")
+            if session.sheet_info is None:
+                if session.sheets_open:
+                    with ui.row().classes("items-center gap-3").mark("profile-sheets-loading"):
+                        ui.spinner()
+                        ui.label(tr("profile.sheets.loading"))
+                return
+            columns = [{"name": name, "label": tr(key), "field": name, "align": "left"} for name, key in
+                       SHEET_COLUMNS.items()]
+            ui.table(columns=columns, rows=sheet_rows(session.sheet_info, current_sheet(session), tr),
+                     row_key="sheet").props(
+                "flat dense").classes("w-full").mark("profile-sheets-table")
+
+    def current_sheet(session):
+        """The sheet that is read now (None if the file cannot be read and no sheet was chosen)."""
+
+        return session.file.options.sheet or (session.file.table.used.sheet if session.file.readable else None)
+
+    def choose_sheet(sheet):
+        state.profile.file.change(sheet=sheet)
+        read_again()
+
+    def file_settings(session):
+        """The box with the settings of the import (the same as in the optimization), and the way back to automatic."""
+
+        if session.file.readable:
+            settings_box(session.file, state.tr, "profile", read_again)
+        if not session.file.readable or session.file.options != ImportOptions():
+            ui.button(state.tr("profile.settings.reset"), on_click=reset_file_settings).props(
+                "flat no-caps dense").mark(
+                "profile-settings-reset")
+
     def upload_card(session):
         tr = state.tr
 
-        with ui.card().classes("w-full gap-3"):
+        with ui.card().classes("w-full gap-3").mark("profile-file-card"):
             if session is not None:
-                with ui.row().classes("items-center gap-3"):
+                several_sheets = len(session.sheet_names) > 1  # also when the sheet that is read cannot be
+                with ui.row().classes("items-center gap-3 w-full"):
                     ui.icon("description", color="primary")
                     ui.label(tr("profile.file", name=session.filename)).classes("font-semibold").mark("profile-file")
+                    if several_sheets:  # always in sight: the visitor can go to another sheet at any time
+                        with ui.column().classes("w-64"):
+                            ui.select(
+                                session.sheet_names, value=current_sheet(session), label=tr("series.sheet"),
+                                on_change=lambda event: choose_sheet(event.value),
+                            ).classes("w-full").mark("series-sheet-profile")
                     ui.button(tr("profile.another"), on_click=remove).props("flat no-caps dense").mark("profile-remove")
+                if several_sheets:
+                    sheets_overview(session)
                 return
 
             ui.upload(label=tr("profile.upload"), on_upload=receive, auto_upload=True, max_files=1).props(
@@ -165,6 +246,7 @@ def make_profile_view(state):
 
         with ui.card().classes("w-full gap-3").mark("profile-settings"):
             ui.label(tr("profile.ask.title")).classes("text-xl font-semibold")
+            file_settings(session)
             if profile.needs:
                 ui.label(tr("profile.ask.hint")).classes("text-warning").mark("profile-ask-hint")
 
@@ -430,6 +512,8 @@ def make_profile_view(state):
             ui.label(tr("profile.unexpected")).classes("text-negative").mark("profile-failed")
         elif session.error is not None:
             ui.label(profile_text(session.error, tr)).classes("text-negative").mark("profile-error")
+            with ui.card().classes("w-full gap-3").mark("profile-error-settings"):
+                file_settings(session)  # the way the file is read may be the reason: let the visitor change it
         elif session.profile is not None:
             if session.ready:
                 analysis_block(session)

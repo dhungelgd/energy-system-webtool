@@ -215,3 +215,45 @@ def test_the_profile_of_the_period_is_the_whole_profile_or_the_year_that_was_ana
 
     assert len(profile_in_period(series, whole)) == 2 * 8760
     assert len(profile_in_period(series, year)) == 8760 and profile_in_period(series, year).index[0].year == 2023
+
+
+# ---------------------------------------------------------------------------
+# the sheets of a workbook
+# ---------------------------------------------------------------------------
+
+def sheet_infos():
+    from backend.load_profile import SheetInfo
+
+    return [
+        SheetInfo("Info", problem="unreadable"),
+        SheetInfo("2022", rows=192, number_columns=1, start=pd.Timestamp("2022-02-05 00:00"), end=pd.Timestamp("2022-02-06 23:45"), step_minutes=15.0),
+        SheetInfo("2023", rows=28800, number_columns=3, start=pd.Timestamp("2023-02-05 00:00"), end=pd.Timestamp("2023-12-31 23:45"), step_minutes=15.0),
+        SheetInfo("Zahlen", rows=10, number_columns=3, problem="no_time"),
+    ]
+
+
+def test_each_sheet_is_a_row_of_text_with_its_rows_period_time_step_and_a_note():
+    from frontend_nicegui.analysis_view import sheet_rows
+
+    rows = sheet_rows(sheet_infos(), "2022", EN)
+
+    assert rows[0] == {"sheet": "Info", "rows": "", "columns": "", "period": "", "step": "", "note": "cannot be read"}
+    assert rows[1] == {"sheet": "2022", "rows": "192", "columns": "1", "period": "2022-02-05 – 2022-02-06", "step": "15 minutes", "note": "analysed now"}
+    assert rows[2]["rows"] == "28,800" and rows[2]["columns"] == "3" and rows[2]["note"] == "" and rows[2]["period"] == "2023-02-05 – 2023-12-31"
+    assert rows[3] == {"sheet": "Zahlen", "rows": "10", "columns": "3", "period": "", "step": "", "note": "no dates and times found"}
+
+
+def test_the_rows_of_the_sheets_are_in_german_with_the_dates_and_the_separators_of_the_language():
+    from frontend_nicegui.analysis_view import sheet_rows
+
+    rows = sheet_rows(sheet_infos(), "2023", DE)
+
+    assert rows[0]["note"] == "nicht lesbar" and rows[3]["note"] == "keine Datums- und Zeitangaben gefunden"
+    assert rows[2] == {"sheet": "2023", "rows": "28.800", "columns": "3", "period": "05.02.2023 – 31.12.2023", "step": "15 Minuten", "note": "wird ausgewertet"}
+
+
+def test_when_the_sheet_that_is_read_now_has_a_problem_the_note_says_both_and_without_a_current_sheet_none_is_marked():
+    from frontend_nicegui.analysis_view import sheet_rows
+
+    assert sheet_rows(sheet_infos(), "Zahlen", EN)[3]["note"] == "analysed now. no dates and times found"
+    assert all("analysed now" not in row["note"] for row in sheet_rows(sheet_infos(), None, EN))

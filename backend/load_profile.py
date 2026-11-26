@@ -21,7 +21,7 @@ file again with that answer (ProfileOptions). This module does not use NiceGUI, 
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import pandas as pd
@@ -29,7 +29,7 @@ import pandas as pd
 from backend.column_names import kind_of
 from backend.findings import Fixed, coded_text
 from backend.i18n import ENGLISH
-from backend.timeseries_import import ImportOptions, StepText, import_text, read_table
+from backend.timeseries_import import ImportOptions, StepText, TimeSeriesFileError, import_text, read_table
 
 DEFAULT_ZONE = "Europe/Berlin"
 
@@ -197,6 +197,19 @@ class Candidate:
 
     name: str
     unit: str = None
+
+
+@dataclass(frozen=True)
+class SheetInfo:
+    """What a sheet of an Excel file holds, to choose the right one."""
+
+    name: str
+    rows: int = 0
+    number_columns: int = 0          # the columns with numbers
+    start: pd.Timestamp = None       # the first and the last time, if the sheet has a column of dates and times
+    end: pd.Timestamp = None
+    step_minutes: float = None
+    problem: str = None              # "no_time" (no dates found) or "unreadable"
 
 
 @dataclass
@@ -518,12 +531,13 @@ def _quality_notices(power, step):
 # the reader
 # ---------------------------------------------------------------------------
 
-def read_load_profile(content, filename, options=None):
+def read_load_profile(content, filename, options=None, table=None):
     """Read a file as a load profile.
 
     content   the bytes of the file (CSV or Excel)
     filename  tells CSV from Excel (by the extension) and is kept in the result
     options   ProfileOptions; what is left at None is worked out
+    table     the file as it was read already (the page lets the visitor change how it is read); None: it is read here
 
     Gives a LoadProfile. If the file does not say which of its columns is the load, or in which unit, `ready` is False
     and `needs` says what to ask; read the file again with the answer. Raises ProfileFileError (and, for a file that
@@ -531,7 +545,7 @@ def read_load_profile(content, filename, options=None):
     """
 
     options = options or ProfileOptions()
-    table = read_table(content, filename, options.file)
+    table = table if table is not None else read_table(content, filename, options.file)
     df = table.df
     notices = []
 
@@ -565,6 +579,8 @@ def read_load_profile(content, filename, options=None):
     notices.insert(0, ProfileNotice(
         "info", "file_info", rows=Count(len(stamps_sorted)), start=StampText(first), end=StampText(last),
         step=StepText(step)))
+    if len(table.sheets) > 1:                           # say which sheet it is: the profile may be on another one
+        notices.insert(1, ProfileNotice("info", "sheet_info", sheet=table.used.sheet, count=len(table.sheets)))
 
     chosen = next((c for c in values_candidates if c.name == column), None)
     shared = {c.unit for c in values_candidates}                  # the columns agree on one unit: no need to ask
@@ -658,3 +674,36 @@ def read_load_profile(content, filename, options=None):
     profile.notices.extend(m for m in table.messages if m.code not in DROPPED_IMPORT_CODES)
 
     return profile
+
+
+def sheet_overview(content, filename, file_options=None, names=None):
+    """What each sheet of an Excel file holds, as a list of SheetInfo (empty for a CSV file and for a file with one sheet). The
+    sheet that is read now is read with the options as they are, the others are read with everything detected. `names` are the
+    sheets that the file is known to have, for the case that the sheet that is read now cannot be read."""
+
+    options = file_options or ImportOptions()
+    try:
+        current = read_table(content, filename, options)
+    except (TimeSeriesFileError, ValueError):
+        current = None
+    sheets = list(current.sheets) if current is not None else list(names or [])
+    if len(sheets) < 2:
+        return []
+
+    result = []
+    for name in sheets:
+        try:
+            table = current if current is not None and name == current.used.sheet else read_table(
+                content, filename, replace(options, sheet=name, header_line=None, first_data_line=None))
+        except (TimeSeriesFileError, ValueError):
+            result.append(SheetInfo(name, problem="unreadable"))
+            continue
+
+        frame = table.df
+        numbers = [column for column in frame.columns if pd.api.types.is_numeric_dtype(frame[column]) and frame[column].notna().any()]
+        axis = table.time
+        result.append(SheetInfo(
+            name, rows=len(frame), number_columns=len(numbers), start=axis.start if axis else None, end=axis.end if axis else None,
+            step_minutes=axis.step_minutes if axis else None, problem=None if axis else "no_time"))
+
+    return result
